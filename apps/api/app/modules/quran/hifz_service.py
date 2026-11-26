@@ -1024,16 +1024,19 @@ async def _store_grade(
 ) -> list[HifzWordScore]:
     """Upsert نمره‌ها + درج ردیف‌های خطا (تاریخچه)."""
     stored: list[HifzWordScore] = []
-    for word in aligned:
-        existing = await db.execute(
-            select(HifzWordScore).where(
-                HifzWordScore.attempt_id == attempt.id,
-                HifzWordScore.surah == surah,
-                HifzWordScore.ayah == ayah,
-                HifzWordScore.word_index == word.word_index,
-            )
+    # D-6/A-1: نمره‌های موجودِ این آیه در **یک** کوئری fetch می‌شوند و
+    # بر حسب word_index map می‌کنند — قبلاً هر کلمه یک کوئری داشت
+    # (یک آزمون حافظه ≈ ۳۰۰ تا ۱۰۰۰ کوئری).
+    existing = await db.execute(
+        select(HifzWordScore).where(
+            HifzWordScore.attempt_id == attempt.id,
+            HifzWordScore.surah == surah,
+            HifzWordScore.ayah == ayah,
         )
-        row = existing.scalars().first()
+    )
+    by_index = {r.word_index: r for r in existing.scalars().all()}
+    for word in aligned:
+        row = by_index.get(word.word_index)
         if row is None:
             row = HifzWordScore(
                 attempt_id=attempt.id,
