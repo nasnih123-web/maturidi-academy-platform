@@ -98,6 +98,14 @@ function authHeader(): Record<string, string> {
   }
 }
 
+function hasToken(): boolean {
+  try {
+    return window.localStorage.getItem(ACCESS_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 async function readJson(res: Response): Promise<unknown> {
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
@@ -210,6 +218,14 @@ class SyncRunner {
     if (typeof window === "undefined") return;
     if (!navigator.onLine) {
       this.emit({ state: "offline" });
+      return;
+    }
+    // Guests cannot sync: both /sync/push and /sync/pull require auth, so a
+    // round without a token only produces a 401 and an "error" state. The
+    // offline outbox is a logged-in-user feature; skip the network round and
+    // stay idle until a token exists (login sets it, next tick picks it up).
+    if (!hasToken()) {
+      this.emit({ state: "idle", lastError: null });
       return;
     }
     this.running = true;
