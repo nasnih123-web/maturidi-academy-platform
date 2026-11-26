@@ -374,17 +374,20 @@ async def prerequisites_satisfied(
             )
         )
     ).scalars().all()
-    missing: list[uuid.UUID] = []
-    for req in required:
-        has = (
-            await db.execute(
-                select(Certificate.id).where(
-                    Certificate.user_id == user_id, Certificate.course_id == req
-                )
+    # D-6/A-5: گواهی‌های کاربر برای همهٔ پیش‌نیازها در **یک** کوئری —
+    # قبلاً هر پیش‌نیاز یک کوئری جدا داشت.
+    if not required:
+        return True, []
+    owned = (
+        await db.execute(
+            select(Certificate.course_id).where(
+                Certificate.user_id == user_id,
+                Certificate.course_id.in_(list(required)),
             )
-        ).first()
-        if not has:
-            missing.append(req)
+        )
+    ).scalars().all()
+    owned_set = set(owned)
+    missing = [req for req in required if req not in owned_set]
     return (not missing), missing
 
 
