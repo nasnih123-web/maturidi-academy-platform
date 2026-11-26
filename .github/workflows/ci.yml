@@ -64,7 +64,10 @@ jobs:
           pip install pip-audit
           pip-audit -r apps/api/requirements.txt
       - name: Migration check
-        run: cd apps/api && alembic upgrade head && alembic downgrade -1 && alembic upgrade head
+        # چرخهٔ کامل + نگهبان ردیف ۲۱ DONE_CRITERIA: اسکیما (این‌جا
+        # SQLite) باید دقیقاً هم‌راستای مدل‌ها باشد — alembic check
+        # با هر انحراف exit غیرصفر می‌دهد.
+        run: cd apps/api && alembic upgrade head && alembic downgrade -1 && alembic upgrade head && alembic check
 
   web:
     runs-on: ubuntu-latest
@@ -174,6 +177,11 @@ jobs:
       - run: pip install -r apps/api/requirements.txt
       - name: Migrations on real PostgreSQL
         run: cd apps/api && alembic upgrade head
+      - name: Model ↔ migration drift check
+        # نگهبان ردیف ۲۱ DONE_CRITERIA: اسکیما باید دقیقاً هم‌راستای
+        # مدل‌ها باشد. هر تغییری در مدل بدون مایگریشنِ جفت،
+        # alembic check را (و این job را) قرمز می‌کند.
+        run: cd apps/api && alembic check
       - name: pgvector integration test (chunk #501)
         run: cd apps/api && python -m pytest tests/test_pgvector_integration.py -q
 

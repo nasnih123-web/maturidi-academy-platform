@@ -20,6 +20,25 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url)
 target_metadata = Base.metadata
 
 
+def include_object(object, name, type_, *args, **kwargs) -> bool | None:
+    """فیلتر اشیای autogenerate — برای ایندکس‌های عمدیِ خارج‌از-مدل.
+
+    HNSW و trgm روی fiqh_knowledge_chunks صرفاً ایندکس‌های عملکردی
+    PostgreSQL هستند: مایگریشن e2b3c4d5f6a7 آن‌ها را فقط روی PG می‌سازد
+    (gated با is_pg) و عمداً در مدل نیستند، چون Index سطح مدل به همهٔ
+    دایالکت‌ها تسری می‌یابد (create_all و بازسازی‌های batch روی SQLite
+    ایندکس btree ساده روی ستون بردار می‌ساختند — در حالی که طراحی
+    مایگریشن آن‌ها را از اسکیما SQLite دور نگه داشته است).
+    بازگشت None = بی‌نظر (رفتار پیش‌فرض alembic برای بقیهٔ اشیاء).
+    """
+    if type_ == "index" and name in (
+        "ix_fiqh_chunks_embedding_vec_hnsw",
+        "ix_fiqh_chunks_text_trgm",
+    ):
+        return False
+    return None
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
@@ -27,13 +46,19 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        include_object=include_object,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
