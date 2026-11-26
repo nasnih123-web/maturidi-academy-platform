@@ -56,6 +56,7 @@ UPDATEهای گارد بخش ۱ است (NULLهای قدیمی را پر کرده
 from collections.abc import Sequence
 
 import sqlalchemy as sa  # noqa: F401  (سازگاری سبک با بقیهٔ مایگریشن‌ها)
+
 # با alias import — نام‌های table/column در حلقه‌های پایین‌تر این فایل
 # به‌عنوان متغیر لوپ استفاده می‌شوند و نام import را می‌پوشانند
 # (UnboundLocalError).
