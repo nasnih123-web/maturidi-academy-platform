@@ -670,32 +670,72 @@ async def recommendations(db: AsyncSession, user: User, limit: int = 10) -> list
     level_idx = LEVEL_ORDER.index(user_level) if user_level in LEVEL_ORDER else 0
     ordered_levels = LEVEL_ORDER[level_idx:] + LEVEL_ORDER[:level_idx]
 
+    # D-6/A-3: fetch گروهی — دوره‌های نامزدها (هر سه سطح) در یک کوئری،
+    # درس‌هایشان در یک کوئری، پیش‌نیازها در یک کوئری، و گواهی‌های کاربر
+    # در یک کوئری؛ بعد گشت سطوح مثل قبل در حافظه و با همان ترتیب
+    # (سطح، sort_order دوره، sort_order درس) اجرا می‌شود.
+    candidate_courses = (
+        await db.execute(
+            select(Course).where(
+                Course.is_active.is_(True),
+                Course.visibility == "public",
+                Course.level.in_(ordered_levels),
+            )
+        )
+    ).scalars().all()
+    courses_by_level: dict[str, list[Course]] = {}
+    for c in candidate_courses:
+        courses_by_level.setdefault(c.level, []).append(c)
+    for lst in courses_by_level.values():
+        lst.sort(key=lambda c: (c.sort_order, c.id))
+
+    lessons_by_course: dict[uuid.UUID, list[Lesson]] = {}
+    prerequisites_by_course: dict[uuid.UUID, list[uuid.UUID]] = {}
+    if candidate_courses:
+        all_course_ids = [c.id for c in candidate_courses]
+        lessons = (
+            await db.execute(
+                select(Lesson).where(Lesson.course_id.in_(all_course_ids))
+            )
+        ).scalars().all()
+        for l in lessons:
+            lessons_by_course.setdefault(l.course_id, []).append(l)
+        for lst in lessons_by_course.values():
+            lst.sort(key=lambda l: (l.sort_order, l.id))
+        prereqs = (
+            await db.execute(
+                select(CoursePrerequisite).where(
+                    CoursePrerequisite.course_id.in_(all_course_ids)
+                )
+            )
+        ).scalars().all()
+        for p in prereqs:
+            prerequisites_by_course.setdefault(
+                p.course_id, []
+            ).append(p.requires_course_id)
+
+    all_required = {r for lst in prerequisites_by_course.values() for r in lst}
+    owned_certs: set[uuid.UUID] = set()
+    if all_required:
+        owned_certs = set(
+            (
+                await db.execute(
+                    select(Certificate.course_id).where(
+                        Certificate.user_id == user.id,
+                        Certificate.course_id.in_(list(all_required)),
+                    )
+                )
+            ).scalars().all()
+        )
+
     out: list[dict] = []
     seen_lessons: set[uuid.UUID] = set()
     for idx, level in enumerate(ordered_levels):
-        courses = (
-            await db.execute(
-                select(Course)
-                .where(
-                    Course.is_active.is_(True),
-                    Course.visibility == "public",
-                    Course.level == level,
-                )
-                .order_by(Course.sort_order, Course.id)
-            )
-        ).scalars().all()
-        for course in courses:
-            ok, _ = await prerequisites_satisfied(db, user.id, course.id)
-            if not ok:
+        for course in courses_by_level.get(level, []):
+            required = prerequisites_by_course.get(course.id, [])
+            if any(r not in owned_certs for r in required):
                 continue
-            lessons = (
-                await db.execute(
-                    select(Lesson)
-                    .where(Lesson.course_id == course.id)
-                    .order_by(Lesson.sort_order, Lesson.id)
-                )
-            ).scalars().all()
-            for lesson in lessons:
+            for lesson in lessons_by_course.get(course.id, []):
                 if lesson.id in completed or lesson.id in seen_lessons:
                     continue
                 seen_lessons.add(lesson.id)
