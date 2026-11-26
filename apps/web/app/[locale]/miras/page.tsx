@@ -49,7 +49,7 @@ export default async function MirasPage({ params }: Props) {
     blockedTitle: t('blockedTitle'),
     stoppedTitle: t('stoppedTitle'),
     stopCodes: t.raw('stopCodes') as Record<string, string>,
-    ruleVersion: t('ruleVersion'),
+    ruleVersion: t.raw('ruleVersion') as string,
     draftNote: t('draftNote'),
   };
   return (
