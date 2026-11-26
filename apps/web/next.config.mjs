@@ -34,6 +34,23 @@ const nextConfig = {
   // lib/quran-mushaf-v2.ts instead of relying on this header.
   async headers() {
     return [
+      // Security audit wave 1 (S-02): security headers were missing from
+      // the web app entirely (live probe: no X-Frame-Options /
+      // X-Content-Type-Options / Referrer-Policy on academy.matoridi.ir).
+      // HSTS is deliberately NOT set here: the app also serves plain
+      // http in dev, and the production TLS edge (nginx/Railway) owns the
+      // HSTS policy — same split as apps/api SecurityHeadersMiddleware.
+      // The site never iframes itself (desktop = WebView URL, mobile =
+      // WebView; video pages embed third-party players outbound, which
+      // X-Frame-Options does not affect), so DENY is safe.
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        ],
+      },
       {
         source: '/quran-mushaf-v2.json',
         headers: [
