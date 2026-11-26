@@ -105,16 +105,22 @@ async def list_courses(
         next_cursor = _encode_cursor(last.sort_order, last.id)
         rows = rows[:limit]
 
+    # D-6/A-4: شمارش دروس همهٔ دوره‌ها در **یک** کوئری گروهی — قبلاً
+    # برای هر دوره یک count جدا بود (و در بلوک پیشرفت و حلقهٔ خروج
+    # تکرار می‌شد: ۲ count به ازای هر دوره).
+    lesson_counts: dict[uuid.UUID, int] = {}
+    if rows:
+        counts_rows = (
+            await db.execute(
+                select(Lesson.course_id, func.count(Lesson.id))
+                .where(Lesson.course_id.in_([c.id for c in rows]))
+                .group_by(Lesson.course_id)
+            )
+        ).all()
+        lesson_counts = {cid: int(n) for cid, n in counts_rows}
+
     progress_map: dict[uuid.UUID, float] = {}
     if user_id:
-        lesson_counts = {
-            c.id: (
-                await db.execute(
-                    select(func.count(Lesson.id)).where(Lesson.course_id == c.id)
-                )
-            ).scalar()
-            for c in rows
-        }
         for c in rows:
             total = lesson_counts.get(c.id, 0) or 0
             if total:
@@ -133,9 +139,7 @@ async def list_courses(
 
     out = []
     for c in rows:
-        total = (
-            await db.execute(select(func.count(Lesson.id)).where(Lesson.course_id == c.id))
-        ).scalar() or 0
+        total = lesson_counts.get(c.id, 0) or 0
         out.append(
             {
                 "id": c.id,
