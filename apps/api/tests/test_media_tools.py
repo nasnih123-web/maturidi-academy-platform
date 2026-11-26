@@ -17,6 +17,7 @@ import asyncio
 import os
 import stat
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -31,25 +32,56 @@ def empty_path(monkeypatch, tmp_path):
     return tmp_path
 
 
+def _write_stub_tesseract(bin_dir: Path, langs: list[str]) -> None:
+    """stub tesseract که به --list-langs فهرست زبان‌ها را جواب می‌دهد.
+
+    لینوکس: اسکریپت sh؛ ویندوز: tesseract.bat (اسکریپت #!/bin/sh در
+    ویندوز اجرا نمی‌شود و shutil.which آن را نمی‌یابد).
+    """
+    # بدون پرانتز: در اسکریپت bat، پرانتزِ داخل بلوک if (...) بلوک
+    # را پیش‌از‌وقت می‌بندد و cmd با «was unexpected at this time»
+    # می‌سوزد. parser media_tools فقط پیشوند این خط را فیلتر می‌کند.
+    lines = ["List of available languages:"] + langs
+    if os.name == "nt":
+        (bin_dir / "tesseract.bat").write_text(
+            "@echo off\r\n"
+            'if "%~1"=="--list-langs" (\r\n'
+            + "".join(f"  echo {l}\r\n" for l in lines)
+            + ")\r\n"
+            "exit /b 0\r\n",
+            encoding="ascii",
+        )
+    else:
+        # write_text در Python 3.13+ تعداد بایت نوشته‌شده را برمی‌گرداند
+        # (int)؛ زنجیرهٔ .chmod روی بازنمی‌گردد خطا می‌دهد (CI لینوکس).
+        t = bin_dir / "tesseract"
+        t.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "--list-langs" ]; then\n'
+            + "".join(f"  echo {l}\n" for l in lines)
+            + "fi\n"
+            "exit 0\n"
+        )
+        t.chmod(0o755)
+
+
 @pytest.fixture
 def stub_bin_path(monkeypatch, tmp_path):
     """باینری‌های stub روی PATH؛ tesseract به --list-langs جواب می‌دهد."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name in ("ffmpeg", "ffprobe", "pdftoppm"):
-        f = bin_dir / name
-        f.write_text("#!/bin/sh\nexit 0\n")
-        f.chmod(f.stat().st_mode | stat.S_IEXEC)
-    tess = bin_dir / "tesseract"
-    tess.write_text(
-        "#!/bin/sh\n"
-        'if [ "$1" = "--list-langs" ]; then\n'
-        '  echo "List of available languages (4):"\n'
-        "  echo eng; echo fas; echo ara; echo osd\n"
-        "fi\n"
-        "exit 0\n"
-    )
-    tess.chmod(tess.stat().st_mode | stat.S_IEXEC)
+    if os.name == "nt":
+        # ffmpeg/ffprobe/pdftoppm در تست‌ها اجرا نمی‌شوند (فقط
+        # shutil.which)؛ stub با پسوند ویندوزی کافی است.
+        for name in ("ffmpeg", "ffprobe", "pdftoppm"):
+            (bin_dir / f"{name}.exe").write_bytes(b"stub")
+        _write_stub_tesseract(bin_dir, ["eng", "fas", "ara", "osd"])
+    else:
+        for name in ("ffmpeg", "ffprobe", "pdftoppm"):
+            f = bin_dir / name
+            f.write_text("#!/bin/sh\nexit 0\n")
+            f.chmod(f.stat().st_mode | stat.S_IEXEC)
+        _write_stub_tesseract(bin_dir, ["eng", "fas", "ara", "osd"])
     monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
     media_tools._langs_cache = None
     return bin_dir
@@ -100,8 +132,7 @@ def test_status_ready_with_stubs(stub_bin_path, monkeypatch):
 
 def test_status_missing_tesseract_langs(stub_bin_path, monkeypatch, tmp_path):
     """tesseract هست ولی پک زبان فارسی/عربی نیست → ready=False با نام دقیق."""
-    tess = stub_bin_path / "tesseract"
-    tess.write_text("#!/bin/sh\necho 'List of available languages (1):'\necho eng\n")
+    _write_stub_tesseract(stub_bin_path, ["eng"])
     media_tools._langs_cache = None
     monkeypatch.setattr(media_tools, "faster_whisper_installed", lambda: True)
     status = media_tools.media_tools_status()

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import socket
 import struct
+import tempfile
 import threading
 
 import pytest
@@ -98,6 +99,18 @@ _STUB_CLAMD_PORT = 33310
 os.environ["CLAMAV_HOST"] = "127.0.0.1"
 os.environ["CLAMAV_PORT"] = str(_STUB_CLAMD_PORT)
 os.environ["CAPTCHA_ENABLED"] = "false"
+# harness نباید به سرویس‌های واقعیِ ماشینِ توسعه‌دهنده وابسته باشد:
+# اگر REDIS_URL پیش‌فرضِ تنظیمات (redis://localhost:6379/0) بماند و روی
+# همان ماشین یک Redis واقعی بالا باشد، شمارنده‌های rate-limit در
+# Redis واقعی ماندگار می‌شوند — reset_for_tests فقط فالبکِ حافظه‌ای
+# را خالی می‌کند، نه کلیدهای Redis — و بعد از سقف (مثلاً ۱۰ register
+# در پنجرهٔ ساعتی) کل سوئیت با 429 می‌میرد. روی رانر CI که Redis
+# محلی وجود ندارد، همان سوئیت سبز است. این‌جا همان وضعیت CI را
+# شبیه می‌کنیم: DSN قابل‌پارس ولی دست‌نیافتنی (اتصال رد می‌شود →
+# فالبک حافظه‌ای، قابل‌ریست با reset_for_tests). خالی‌کردن نمی‌شود:
+# RedisSettings.from_dsn بر روی DSN خالی خطا می‌دهد (test_worker_
+# settings_pass4).
+os.environ["REDIS_URL"] = "redis://127.0.0.1:6390/0"
 _STUB_SERVER = _StubClamd(port=_STUB_CLAMD_PORT)
 _STUB_SERVER.start()
 
@@ -119,7 +132,14 @@ def _captcha_disabled_by_default():
     """
     yield
 
-TEST_DB = os.environ.get("MATURIDI_TEST_DB", "/tmp/maturidi_test_phase1.db")
+# پیش‌فرض مسیر دیتابیس تست پلتفرم‌آگاه است: روی ویندوز «/tmp» وجود
+# ندارد و sqlite «unable to open database file» می‌داد (همهٔ تست‌های
+# DB روی ماشین ویندوزی ارور می‌شدند در حالی که همان سوئیت در CI
+# لینوکسی سبز بود).
+TEST_DB = os.environ.get(
+    "MATURIDI_TEST_DB",
+    os.path.join(tempfile.gettempdir(), "maturidi_test_phase1.db"),
+)
 # نکتهٔ Track C (2026-10-19): مسیر از env قابل بازنویسی است تا چند اجرای
 # هم‌زمان pytest (ترک‌های مختلف روی یک برنچ) دیتابیس مشترک همدیگر را پاک نکنند:
 #   MATURIDI_TEST_DB=/tmp/maturidi_test_track_c.db pytest tests/ -q
