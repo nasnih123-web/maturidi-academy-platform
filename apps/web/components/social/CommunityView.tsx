@@ -7,6 +7,7 @@
 
 import { useSocialGroups } from '@/lib/hooks/useSocial';
 import { GroupCard } from './GroupCard';
+import { LoginGate } from './LoginGate';
 import type { SocialLabels } from './labels';
 
 interface CommunityViewProps {
@@ -16,6 +17,10 @@ interface CommunityViewProps {
 
 export function CommunityView({ locale, labels }: CommunityViewProps) {
   const groups = useSocialGroups();
+
+  if (groups.unauthenticated) {
+    return <LoginGate locale={locale} labels={labels} />;
+  }
 
   return (
     <div className="page-wrap">
@@ -45,6 +50,7 @@ export function CommunityView({ locale, labels }: CommunityViewProps) {
           <GroupCard
             key={g.id}
             group={g}
+            locale={locale}
             href={`/${locale}/community/${encodeURIComponent(g.id)}`}
             joinLabel={labels.join}
             leaveLabel={labels.leave}

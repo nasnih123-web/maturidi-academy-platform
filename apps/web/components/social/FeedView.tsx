@@ -8,6 +8,7 @@
 import { useComposer, useSocialFeed } from '@/lib/hooks/useSocial';
 import { PostCard } from './PostCard';
 import { PostComposer } from './PostComposer';
+import { LoginGate } from './LoginGate';
 import type { SocialLabels } from './labels';
 
 interface FeedViewProps {
@@ -18,6 +19,10 @@ interface FeedViewProps {
 export function FeedView({ locale, labels }: FeedViewProps) {
   const feed = useSocialFeed();
   const composer = useComposer(feed.prependPost);
+
+  if (feed.unauthenticated) {
+    return <LoginGate locale={locale} labels={labels} />;
+  }
 
   return (
     <div className="page-wrap">

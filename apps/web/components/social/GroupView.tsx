@@ -6,9 +6,11 @@
  */
 
 import { useComposer, useGroupView } from '@/lib/hooks/useSocial';
+import { pickText } from '@/lib/localize';
 import { PostCard } from './PostCard';
 import { PostComposer } from './PostComposer';
 import { ReportButton } from './ReportButton';
+import { LoginGate } from './LoginGate';
 import type { SocialLabels } from './labels';
 
 interface GroupViewProps {
@@ -25,6 +27,10 @@ export function GroupView({ groupId, locale, labels }: GroupViewProps) {
     void view.retryAll();
     void post;
   });
+
+  if (view.unauthenticated) {
+    return <LoginGate locale={locale} labels={labels} />;
+  }
 
   if (view.loading) {
     return (
@@ -50,6 +56,8 @@ export function GroupView({ groupId, locale, labels }: GroupViewProps) {
   }
 
   const group = view.group;
+  const name = pickText(group.name, locale);
+  const description = pickText(group.description, locale);
 
   return (
     <div className="page-wrap">
@@ -58,8 +66,8 @@ export function GroupView({ groupId, locale, labels }: GroupViewProps) {
       </a>
       <div className="soc-group-hero">
         <div>
-          <h1 className="page-title">{group.name}</h1>
-          {group.description && <p className="page-sub">{group.description}</p>}
+          <h1 className="page-title">{name}</h1>
+          {description && <p className="page-sub">{description}</p>}
           <span className="soc-group-members">
             {group.member_count} {labels.members}
           </span>

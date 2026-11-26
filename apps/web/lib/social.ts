@@ -8,16 +8,19 @@
  *
  * Wire contract (source of truth: backend track, Phase 10):
  * - GET    /api/v1/social/groups?cursor=
- *          → {items:[{id,name,description,member_count}], next_cursor}
- * - GET    /api/v1/social/groups/{id}          → SocialGroup
+ *          → {items:[{id,name:LocalizedText,description:LocalizedText|null,
+ *             member_count,is_member,...}], next_cursor}
+ * - GET    /api/v1/social/groups/{id}          → GroupOut
  * - POST   /api/v1/social/groups/{id}/join     → 200 GroupOut
  * - POST   /api/v1/social/groups/{id}/leave    → 200 GroupOut
  * - GET    /api/v1/social/groups/{id}/posts?cursor= → {items:[post], next_cursor}
  * - GET    /api/v1/social/feed?cursor=          → {items:[post], next_cursor}
  * - POST   /api/v1/social/posts {group_id?, body}
  *          → 201 post; 422 {error:{code:"content_policy_violation"}} on banned words
- * - GET    /api/v1/social/posts/{id}           → post (with liked flag)
- * - POST   /api/v1/social/posts/{id}/comments {body} → 201 comment
+ * - GET    /api/v1/social/posts/{id}           → bare post (author_id, no author
+ *          object, no group_name, comment_count) — normalized here
+ * - GET    /api/v1/social/posts/{id}/comments?cursor= → {items:[comment], next_cursor}
+ * - POST   /api/v1/social/posts/{id}/comments {body} → 201 comment (author_id)
  * - POST   /api/v1/social/report {target_type:"post"|"comment", target_id, reason}
  *          → 201 ReportOut {id, sla_due_at, ...} (mapped to {report_id, sla_hours} in lib)
  * - POST   /api/v1/social/posts/{id}/like      → 200 {liked, likes_count}
@@ -40,6 +43,7 @@
 
 import { getAccessToken, getRefreshToken, refreshTokens } from './auth-client';
 import { apiBaseUrl } from './api-base';
+import type { LocalizedText } from './types';
 import {
   demoAskQuestion,
   demoCommentOnPost,
@@ -65,8 +69,10 @@ export interface SocialAuthor {
 
 export interface SocialGroup {
   id: string;
-  name: string;
-  description: string | null;
+  /** Localized display name (backend sends LocalizedText). */
+  name: LocalizedText;
+  /** Localized description (backend sends LocalizedText | null). */
+  description: LocalizedText | null;
   member_count: number;
   /** Whether the current user is a member (server-provided when known). */
   joined?: boolean;
@@ -253,13 +259,92 @@ function asPage<T>(v: unknown): CursorPage<T> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Wire → model normalization                                           */
+/*                                                                      */
+/* The backend (Track 1) returns raw ORM-ish shapes that differ from the */
+/* UI contract: group name/description are LocalizedText, posts carry   */
+/* author_id (no author object), comment_count (not comments_count), and */
+/* post detail is a bare post without a comments array. These helpers   */
+/* coerce the wire into the client model so components can assume the   */
+/* contract. Demo mode returns model-shaped fixtures and round-trips    */
+/* through the same helpers harmlessly.                                 */
+/* ------------------------------------------------------------------ */
+
+function asLocalizedText(v: unknown): LocalizedText {
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const out: Record<string, string> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (typeof val === 'string') out[k] = val;
+    }
+    return out as LocalizedText;
+  }
+  if (typeof v === 'string') return { fa: v, ar: v, en: v };
+  return { fa: '', ar: '', en: '' };
+}
+
+function asAuthor(v: unknown, fallbackId: unknown): SocialAuthor {
+  if (v && typeof v === 'object') {
+    const a = v as Record<string, unknown>;
+    return {
+      id: typeof a.id === 'string' ? a.id : '',
+      display_name: typeof a.display_name === 'string' ? a.display_name : '',
+    };
+  }
+  return { id: typeof fallbackId === 'string' ? fallbackId : '', display_name: '' };
+}
+
+function normalizeGroup(w: unknown): SocialGroup {
+  const g = (w ?? {}) as Record<string, unknown>;
+  const isMember = g.joined ?? g.is_member;
+  return {
+    id: typeof g.id === 'string' ? g.id : '',
+    name: asLocalizedText(g.name),
+    description: g.description != null ? asLocalizedText(g.description) : null,
+    member_count: typeof g.member_count === 'number' ? g.member_count : 0,
+    joined: isMember === true || isMember === 'true',
+  };
+}
+
+function normalizePost(w: unknown): SocialPost {
+  const p = (w ?? {}) as Record<string, unknown>;
+  const commentsCount = p.comments_count ?? p.comment_count;
+  const likesCount = p.likes_count ?? p.likes;
+  return {
+    id: typeof p.id === 'string' ? p.id : '',
+    author: asAuthor(p.author, p.author_id),
+    group_id: typeof p.group_id === 'string' ? p.group_id : null,
+    group_name: typeof p.group_name === 'string' ? p.group_name : null,
+    body: typeof p.body === 'string' ? p.body : '',
+    comments_count: typeof commentsCount === 'number' ? commentsCount : 0,
+    likes_count: typeof likesCount === 'number' ? likesCount : undefined,
+    liked: typeof p.liked === 'boolean' ? p.liked : undefined,
+    following_author:
+      typeof p.following_author === 'boolean' ? p.following_author : undefined,
+    created_at: typeof p.created_at === 'string' ? p.created_at : '',
+  };
+}
+
+function normalizeComment(w: unknown): SocialComment {
+  const c = (w ?? {}) as Record<string, unknown>;
+  return {
+    id: typeof c.id === 'string' ? c.id : '',
+    author: asAuthor(c.author, c.author_id),
+    body: typeof c.body === 'string' ? c.body : '',
+    created_at: typeof c.created_at === 'string' ? c.created_at : '',
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* Groups                                                              */
 /* ------------------------------------------------------------------ */
 
 /** GET /api/v1/social/groups — topic-group directory. */
 export async function listGroups(cursor?: string): Promise<CursorPage<SocialGroup>> {
   if (isSocialDemo()) return demoGetGroups(cursor);
-  return asPage<SocialGroup>(await request<unknown>(`/api/v1/social/groups${qs({ cursor })}`));
+  const page = asPage<unknown>(
+    await request<unknown>(`/api/v1/social/groups${qs({ cursor })}`),
+  );
+  return { items: page.items.map(normalizeGroup), next_cursor: page.next_cursor };
 }
 
 /** GET /api/v1/social/groups/{id}. */
@@ -270,7 +355,7 @@ export async function getGroup(id: string): Promise<SocialGroup> {
     if (!g) throw new SocialApiError('group not found', 404);
     return g;
   }
-  return request<SocialGroup>(`/api/v1/social/groups/${encodeURIComponent(id)}`);
+  return normalizeGroup(await request<unknown>(`/api/v1/social/groups/${encodeURIComponent(id)}`));
 }
 
 /** POST /api/v1/social/groups/{id}/join. */
@@ -301,9 +386,10 @@ export async function listGroupPosts(
   cursor?: string,
 ): Promise<CursorPage<SocialPost>> {
   if (isSocialDemo()) return demoGetGroupPosts(groupId, cursor);
-  return asPage<SocialPost>(
+  const page = asPage<unknown>(
     await request<unknown>(`/api/v1/social/groups/${encodeURIComponent(groupId)}/posts${qs({ cursor })}`),
   );
+  return { items: page.items.map(normalizePost), next_cursor: page.next_cursor };
 }
 
 /* ------------------------------------------------------------------ */
@@ -313,7 +399,8 @@ export async function listGroupPosts(
 /** GET /api/v1/social/feed — personal feed (follows + groups). */
 export async function getFeed(cursor?: string): Promise<CursorPage<SocialPost>> {
   if (isSocialDemo()) return demoGetFeed(cursor);
-  return asPage<SocialPost>(await request<unknown>(`/api/v1/social/feed${qs({ cursor })}`));
+  const page = asPage<unknown>(await request<unknown>(`/api/v1/social/feed${qs({ cursor })}`));
+  return { items: page.items.map(normalizePost), next_cursor: page.next_cursor };
 }
 
 /**
@@ -323,29 +410,54 @@ export async function getFeed(cursor?: string): Promise<CursorPage<SocialPost>> 
  */
 export async function createPost(input: CreatePostInput): Promise<SocialPost> {
   if (isSocialDemo()) return demoCreatePost(input);
-  return request<SocialPost>('/api/v1/social/posts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ group_id: input.group_id ?? null, body: input.body }),
-  });
+  return normalizePost(
+    await request<unknown>('/api/v1/social/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: input.group_id ?? null, body: input.body }),
+    }),
+  );
 }
 
-/** GET /api/v1/social/posts/{id} — post + comments. */
+/**
+ * GET /api/v1/social/posts/{id} — post + comments.
+ *
+ * The backend returns the bare post (no `post`/`comments` wrapper); comments
+ * come from the separate GET /posts/{id}/comments endpoint. A wrapped
+ * `{post, comments}` shape (demo mode) is honored when present.
+ */
 export async function getPostDetail(id: string): Promise<PostDetail> {
   if (isSocialDemo()) return demoGetPost(id);
   const wire = await request<unknown>(`/api/v1/social/posts/${encodeURIComponent(id)}`);
-  const w = wire as { post?: SocialPost; comments?: SocialComment[] };
-  return { post: w.post as SocialPost, comments: Array.isArray(w.comments) ? w.comments : [] };
+  const w = wire as { post?: unknown; comments?: unknown };
+  const post = normalizePost(w.post ?? wire);
+  let comments: SocialComment[] = [];
+  if (Array.isArray(w.comments)) {
+    comments = (w.comments as unknown[]).map(normalizeComment);
+  } else {
+    try {
+      const page = asPage<unknown>(
+        await request<unknown>(`/api/v1/social/posts/${encodeURIComponent(id)}/comments`),
+      );
+      comments = page.items.map(normalizeComment);
+    } catch {
+      /* comments endpoint failed — render the post with an empty thread */
+      comments = [];
+    }
+  }
+  return { post, comments };
 }
 
 /** POST /api/v1/social/posts/{id}/comments. */
 export async function createComment(postId: string, body: string): Promise<SocialComment> {
   if (isSocialDemo()) return demoCommentOnPost(postId, body);
-  return request<SocialComment>(`/api/v1/social/posts/${encodeURIComponent(postId)}/comments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ body }),
-  });
+  return normalizeComment(
+    await request<unknown>(`/api/v1/social/posts/${encodeURIComponent(postId)}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    }),
+  );
 }
 
 /** POST /api/v1/social/report — flag a post or comment for moderation. */

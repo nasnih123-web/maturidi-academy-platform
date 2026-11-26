@@ -2154,6 +2154,9 @@ html[data-munajat="on"] .tasbih-count, html[data-munajat="on"] .adhan-countdown 
 .soc-status p { margin: 0 0 0.8rem; }
 .soc-empty { color: hsl(var(--text-muted)); border: 1px dashed rgba(212,175,55,0.3); border-radius: var(--radius-lg); padding: 1.6rem 1.2rem; text-align: center; background: rgba(7,35,28,0.55); }
 .soc-error { color: #f0a3a3; background: rgba(160,40,40,0.12); border: 1px solid rgba(220,90,90,0.4); border-radius: var(--radius-md); padding: 0.6rem 0.9rem; font-size: 0.88rem; margin: 0.6rem 0; }
+.soc-gate { border: 1px solid rgba(212,175,55,0.3); border-radius: var(--radius-lg); padding: 2.2rem 1.6rem; text-align: center; background: rgba(7,35,28,0.55); display: flex; flex-direction: column; align-items: center; gap: 0.9rem; margin-block-start: 1.4rem; }
+.soc-gate h2 { color: #e5c07b; margin: 0; font-size: 1.25rem; }
+.soc-gate p { color: hsl(var(--text-muted)); margin: 0; }
 .soc-section-title { color: #e5c07b; font-size: 1.05rem; font-weight: 750; margin: 1.8rem 0 0.8rem; }
 .soc-back { display: inline-block; color: hsl(var(--text-muted)); font-size: 0.88rem; margin-block-end: 1rem; text-decoration: none; }
 .soc-back:hover { color: #e5c07b; }

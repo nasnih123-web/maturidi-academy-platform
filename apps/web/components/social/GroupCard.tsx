@@ -6,9 +6,11 @@
  */
 
 import type { SocialGroup } from '@/lib/social';
+import { pickText } from '@/lib/localize';
 
 interface GroupCardProps {
   group: SocialGroup;
+  locale: string;
   joinLabel: string;
   leaveLabel: string;
   joiningLabel: string;
@@ -22,6 +24,7 @@ interface GroupCardProps {
 
 export function GroupCard({
   group,
+  locale,
   joinLabel,
   leaveLabel,
   joiningLabel,
@@ -33,13 +36,15 @@ export function GroupCard({
   onToggleJoin,
 }: GroupCardProps) {
   const joined = Boolean(group.joined);
+  const name = pickText(group.name, locale);
+  const description = pickText(group.description, locale);
   return (
     <article className="soc-group">
       <div className="soc-group-main">
         <h3 className="soc-group-name">
-          <a href={href}>{group.name}</a>
+          <a href={href}>{name}</a>
         </h3>
-        {group.description && <p className="soc-group-desc">{group.description}</p>}
+        {description && <p className="soc-group-desc">{description}</p>}
         <span className="soc-group-members">
           {group.member_count} {membersLabel}
         </span>

@@ -2147,6 +2147,8 @@
     "feedSubtitle": "Posts from groups and authors you follow",
     "emptyFeed": "Nothing in your feed yet. Join groups or follow authors.",
     "loginHint": "Sign in to publish posts and interact.",
+    "loginRequiredTitle": "Sign in to view the community",
+    "loginCta": "Sign in",
     "composerPlaceholder": "Write something…",
     "post": "Publish",
     "posting": "Publishing…",
