@@ -784,27 +784,39 @@ async def list_cohorts(
         rows = rows[:limit]
         next_cursor = _encode_cursor(0, rows[-1].id)  # کرسر ساده بر اساس id
 
-    out = []
-    for c in rows:
-        enrolled = (
+    # D-6/A-6: شمار ثبت‌نام‌های فعال همهٔ کوهورت‌های صفحه در **یک**
+    # کوئری گروهی (+ یک کوئری برای کوهورت‌های خود کاربر) — قبلاً هر
+    # کوهورت ۲ کوئری جدا داشت (count + «این کوهورت من است؟»).
+    enrolled_counts: dict[uuid.UUID, int] = {}
+    mine_ids: set[uuid.UUID] = set()
+    if rows:
+        counts_rows = (
             await db.execute(
-                select(func.count(CohortEnrollment.id)).where(
-                    CohortEnrollment.cohort_id == c.id,
+                select(CohortEnrollment.cohort_id, func.count(CohortEnrollment.id))
+                .where(
+                    CohortEnrollment.cohort_id.in_([c.id for c in rows]),
                     CohortEnrollment.status == "active",
                 )
+                .group_by(CohortEnrollment.cohort_id)
             )
-        ).scalar() or 0
-        mine = False
+        ).all()
+        enrolled_counts = {cid: int(n) for cid, n in counts_rows}
         if user:
-            mine = (
+            mine_rows = (
                 await db.execute(
-                    select(CohortEnrollment.id).where(
-                        CohortEnrollment.cohort_id == c.id,
+                    select(CohortEnrollment.cohort_id).where(
+                        CohortEnrollment.cohort_id.in_([c.id for c in rows]),
                         CohortEnrollment.user_id == user.id,
                         CohortEnrollment.status == "active",
                     )
                 )
-            ).first() is not None
+            ).scalars().all()
+            mine_ids = set(mine_rows)
+
+    out = []
+    for c in rows:
+        enrolled = enrolled_counts.get(c.id, 0) or 0
+        mine = c.id in mine_ids
         out.append(
             {
                 "id": c.id,
@@ -1128,16 +1140,25 @@ async def admin_list_cohorts(db: AsyncSession) -> list[dict]:
             select(CourseCohort).order_by(CourseCohort.starts_at, CourseCohort.id)
         )
     ).scalars().all()
-    out = []
-    for c in rows:
-        enrolled = (
+    # D-6/A-6 (endpoint CRM): همان count گروهی — قبلاً هر کوهورت یک
+    # کوئری جدا داشت.
+    enrolled_counts: dict[uuid.UUID, int] = {}
+    if rows:
+        counts_rows = (
             await db.execute(
-                select(func.count(CohortEnrollment.id)).where(
-                    CohortEnrollment.cohort_id == c.id,
+                select(CohortEnrollment.cohort_id, func.count(CohortEnrollment.id))
+                .where(
+                    CohortEnrollment.cohort_id.in_([c.id for c in rows]),
                     CohortEnrollment.status == "active",
                 )
+                .group_by(CohortEnrollment.cohort_id)
             )
-        ).scalar() or 0
+        ).all()
+        enrolled_counts = {cid: int(n) for cid, n in counts_rows}
+
+    out = []
+    for c in rows:
+        enrolled = enrolled_counts.get(c.id, 0) or 0
         out.append(
             {
                 "id": c.id,
