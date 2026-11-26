@@ -23,7 +23,7 @@ from itertools import pairwise
 from typing import Protocol, cast
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import APIError
@@ -1488,20 +1488,27 @@ async def review_queue(db: AsyncSession, user: User) -> list[dict]:
         entry["last_activity_at"] = max(entry["last_activity_at"], m.created_at)
     # Latest scores per ayah: the most recently updated attempt that has
     # scores for the ayah decides whether it is still due.
+    # D-6/A-2: **یک** کوئری گروهی (row-value IN) برای همهٔ جفت‌ها به‌جای
+    # یک کوئری به ازای هر (surah, ayah). ترتیب جهانی همان
+    # updated_at DESC NULLS LAST است، پس گرفتن ۵۰ ردیف اول هر جفت دقیقاً
+    # همان LIMIT 50 کوئری‌به‌کوئریِ قبلی را بازتولید می‌کند.
     due: list[dict] = []
-    for (surah, ayah), entry in keys.items():
-        latest = await db.execute(
+    scores_by_pair: dict[tuple[int, int], list[HifzWordScore]] = {}
+    if keys:
+        pairs = list(keys)
+        latest_all = await db.execute(
             select(HifzWordScore)
             .join(HifzAttempt, HifzWordScore.attempt_id == HifzAttempt.id)
             .where(
                 HifzAttempt.user_id == user.id,
-                HifzWordScore.surah == surah,
-                HifzWordScore.ayah == ayah,
+                tuple_(HifzWordScore.surah, HifzWordScore.ayah).in_(pairs),
             )
             .order_by(HifzWordScore.updated_at.desc().nullslast())
-            .limit(50)
         )
-        rows = list(latest.scalars().all())
+        for r in latest_all.scalars().all():
+            scores_by_pair.setdefault((r.surah, r.ayah), []).append(r)
+    for (surah, ayah), entry in keys.items():
+        rows = scores_by_pair.get((surah, ayah), [])[:50]
         if not rows:
             due.append(entry)  # peek-only: never graded clean
             continue
