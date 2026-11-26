@@ -63,6 +63,18 @@
 - **علت:** بک‌اند `GroupOut.is_member` برمی‌گرداند ولی وب `group.joined` می‌خواند (`GroupCard.tsx:35`)؛ هیچ‌جا نگاشت نمی‌شود.
 - **پیشنهاد:** در `lib/social.ts` هنگام خواندن wire، `joined: g.joined ?? g.is_member`.
 
+### W-10 — مهم — قرارداد wire پست‌ها با تایپ وب نمی‌خواند (کرش‌های پنهان)
+- **مسیر:** `/fa/community` (فید گروه)، `/fa/feed`، `/fa/community/post/{id}` — با دادهٔ واقعی و ورود
+- **بازتولید:** ۱) ورود ۲) باز کردن صفحهٔ یک گروه که پست داشته باشد → کرش `post.author is undefined` در `PostCard.tsx:35,45`.
+- **مستندات wire واقعی (گرفته از API زندهٔ dev):**
+  - آیتم فید/پست: `{id, group_id, author_id, body, status, comment_count, likes_count, liked, created_at}` — یعنی:
+    - `author` (اوبجکت `display_name`) **وجود ندارد**؛ فقط `author_id` → `PostCard` کرش می‌کند.
+    - `group_name` وجود ندارد → نشان گروه هرگز پر نمی‌شود.
+    - شمارش `comment_count` است ولی وب `comments_count` می‌خواند → «undefined نظر».
+  - `GET /social/posts/{id}` پست **صاف** برمی‌گرداند (بدون `comments`)؛ درحالی‌که `getPostDetail` در `lib/social.ts` شکل `{post, comments}` را انتظار دارد → `PostView` با `post` خالی کرش می‌کند.
+  - endpoint جدا برای کامنت‌ها هست: `GET /social/posts/{id}/comments` (`CommentPage`).
+- **پیشنهاد:** بک‌اند (مالک قرارداد wire): غنی‌سازی `PostOut` با `author{display_name}` و `group_name` و یکدست‌سازی نام شمارش؛ وب (این ایجنت): تطبیق `getPostDetail` با fetch جداگانهٔ کامنت‌ها. تا رفع بک‌اند، صفحه‌های پست با دادهٔ واقعی کار نمی‌کنند (فقط دمو).
+
 ### W-08 — متوسط — bootstrap ویندوزی روی کنسول غیر-UTF8 می‌شکند
 - **مسیر:** `bootstrap.ps1` روی سیستمی که code page کنسول cp1252 باشد (رایج در ویندوز فارسی)
 - **بازتولید:** `tools/dev/write_dev_env.py` و `app.seed` با `UnicodeEncodeError: 'charmap' codec can't encode` می‌افتند؛ نتیجه: `.env` نیمه‌ساخته و seed مدیر commit نمی‌شود (در این ممیزی دقیقاً همین شد و باید با `PYTHONIOENCODING=utf-8` دوباره اجرا می‌شد).
