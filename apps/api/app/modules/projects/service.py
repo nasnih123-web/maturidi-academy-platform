@@ -208,17 +208,25 @@ async def list_projects(
         rows = rows[:limit]
         last = rows[-1]
         next_cursor = _encode_cursor(last.created_at, last.id)
+    # D-6/A-8: شمار تسک‌های همهٔ پروژه‌های صفحه در **یک** کوئری گروهی
+    # — قبلاً هر پروژه یک count جدا داشت.
+    task_counts: dict[UUID, int] = {}
+    if rows:
+        counts_rows = (
+            await db.execute(
+                select(Task.project_id, func.count(Task.id))
+                .where(Task.project_id.in_([p.id for p in rows]))
+                .group_by(Task.project_id)
+            )
+        ).all()
+        task_counts = {pid: int(n) for pid, n in counts_rows}
     items = []
     for p in rows:
-        cnt = (
-            await db.execute(
-                select(func.count()).select_from(Task).where(Task.project_id == p.id)
-            )
-        ).scalar_one()
         items.append(schemas.ProjectOut(
             id=p.id, title=schemas.LocalizedText.model_validate(p.title),
             status=p.status, created_by=p.created_by,
-            created_at=p.created_at, updated_at=p.updated_at, task_count=cnt,
+            created_at=p.created_at, updated_at=p.updated_at,
+            task_count=task_counts.get(p.id, 0),
         ))
     return items, next_cursor
 
