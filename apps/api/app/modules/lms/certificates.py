@@ -26,15 +26,32 @@ _LATIN_FONT_CANDIDATES = [
 
 @lru_cache(maxsize=1)
 def _fonts() -> tuple[str, str]:
-    """ثبت فونت‌ها در reportlab؛ (فونت عربی، فونت لاتین)."""
+    """ثبت فونت‌ها در reportlab؛ (فونت عربی، فونت لاتین).
+
+    ترتیب: override صریح از محیط (MATURIDI_AR_FONT / MATURIDI_LATIN_FONT
+    — برای ماشین‌های توسعه که مسیرهای استاندارد لینوکسی را ندارند،
+    مثل ویندوز؛ ایمیج Docker و CI فونت‌ها را در همان مسیرها نصب
+    می‌کنند و override لازم ندارند) → مسیرهای استاندارد.
+    """
     import os
 
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
-    ar_path = next((p for p in _AR_FONT_CANDIDATES if os.path.exists(p)), None)
-    la_path = next((p for p in _LATIN_FONT_CANDIDATES if os.path.exists(p)), None)
-    if ar_path is None or la_path is None:
+    ar_env = os.environ.get("MATURIDI_AR_FONT", "").strip()
+    la_env = os.environ.get("MATURIDI_LATIN_FONT", "").strip()
+    ar_path = ar_env or next(
+        (p for p in _AR_FONT_CANDIDATES if os.path.exists(p)), None
+    )
+    la_path = la_env or next(
+        (p for p in _LATIN_FONT_CANDIDATES if os.path.exists(p)), None
+    )
+    if (
+        ar_path is None
+        or la_path is None
+        or not os.path.exists(ar_path)
+        or not os.path.exists(la_path)
+    ):
         raise RuntimeError("arabic/latin system fonts not found for certificate PDF")
     pdfmetrics.registerFont(TTFont("MaturidiAR", ar_path))
     pdfmetrics.registerFont(TTFont("MaturidiLA", la_path))

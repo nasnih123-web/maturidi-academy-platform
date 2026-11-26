@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+
+from tests.shellutil import usable_bash
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WRITE_ENV = REPO_ROOT / "tools" / "dev" / "write_dev_env.py"
@@ -115,9 +118,19 @@ def _stub_server(transcribe_status: int, transcribe_code: str | None):
 
 def _run_check(server) -> subprocess.CompletedProcess:
     port = server.server_address[1]
+    # PYTHONIOENCODING: خروجی ابزار شامل متن فارسی و ✓/✗ است؛ روی
+    # ویندوز با locale غیر-UTF-8 (مثلاً cp1252) فرزند روی همان print
+    # UnicodeEncodeError می‌داد — env صریح، تست را از locale میز
+    # مستقل می‌کند.
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
     return subprocess.run(
         [sys.executable, str(CHECK), "--base-url", f"http://127.0.0.1:{port}"],
-        capture_output=True, text=True, timeout=60, check=False,
+        # encoding صریح: decode خروجی فرزند را از locale میز (که روی
+        # ویندوز اغلب cp1252 است) مستقل می‌کند و با encoding فرزند
+        # (PYTHONIOENCODING=utf-8) هم‌راستا می‌شود؛ وگرنه ✓/✗ و متن
+        # فارسی به mojibake تبدیل می‌شدند.
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=60, check=False, env=env,
     )
 
 
@@ -141,10 +154,13 @@ def test_bootstrap_check_fails_when_antivirus_unavailable():
     assert "✗" in proc.stdout
 
 
-@pytest.mark.skipif(not shutil.which("bash"), reason="bash در این محیط نیست")
+_BASH = usable_bash()
+
+
+@pytest.mark.skipif(not _BASH, reason="bash سالم در این محیط نیست")
 def test_shell_scripts_syntax_ok():
     for script in (REPO_ROOT / "bootstrap.sh", REPO_ROOT / "apps" / "api" / "setup.sh"):
         proc = subprocess.run(
-            ["bash", "-n", str(script)], capture_output=True, text=True, check=False
+            [_BASH, "-n", str(script)], capture_output=True, text=True, check=False
         )
         assert proc.returncode == 0, f"{script}: {proc.stderr}"

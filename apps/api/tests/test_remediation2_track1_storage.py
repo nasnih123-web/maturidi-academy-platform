@@ -18,6 +18,8 @@ from urllib.parse import urlparse
 
 import pytest
 
+from tests.shellutil import usable_bash
+
 REPO = Path(__file__).resolve().parents[3]
 
 GOOD_JWT = "x7K9mQ2vT5pL8nR4sW6uY3zA1bC0dEf2"
@@ -268,9 +270,18 @@ def test_lifespan_calls_ensure_storage_ready():
 
 # ------------------------------------------------- یافتهٔ ۳: backup.sh و restore
 
+_BASH = usable_bash()
+
+
+@pytest.mark.skipif(
+    not _BASH,
+    reason="bash سالم در این محیط نیست (یا نیست یا relay خراب WSL)",
+)
 def test_backup_script_bash_syntax():
+    # _BASH صریح: نام ساده "bash" در ترتیب CreateProcess ویندوز
+    # ممکن است به relay خراب System32\ (WSL) برسد، نه bashِ PATH.
     assert subprocess.run(
-        ["bash", "-n", str(REPO / "infra" / "backup.sh")],
+        [_BASH, "-n", str(REPO / "infra" / "backup.sh")],
         capture_output=True,
         check=False,  # returncode در همان assert بررسی می‌شود
     ).returncode == 0

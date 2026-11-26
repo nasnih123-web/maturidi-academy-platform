@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -197,6 +198,11 @@ def _dockerfile_file_link_layout(docker_rel: str) -> tuple:
     """Parse a Dockerfile, returning (WORKDIR at `npm ci`, resolved
     packages COPY dests). COPY dests are resolved against the WORKDIR in
     effect at that line (absolute dests stay as-is)."""
+    # مسیرهای Dockerfile POSIX هستند؛ روی ویندوز os.path.normpath/join
+    # جداکننده را backslash می‌کنند و چک "/packages/" هرگز نمی‌خورد
+    # (تست «vacuous» می‌شد). همهٔ محاسبات با posixpath انجام می‌شود.
+    import posixpath
+
     workdir = None
     npm_ci_workdir = None
     pkg_dests: list[str] = []
@@ -211,8 +217,9 @@ def _dockerfile_file_link_layout(docker_rel: str) -> tuple:
             dest = tokens[-1]
             if workdir is None:
                 continue
-            resolved = dest if os.path.isabs(dest) else os.path.normpath(
-                os.path.join(workdir, dest)
+            resolved = (
+                dest if dest.startswith("/")
+                else posixpath.normpath(posixpath.join(workdir, dest))
             )
             if resolved.endswith("/packages") or "/packages/" in resolved:
                 pkg_dests.append(resolved)
@@ -257,12 +264,14 @@ def test_dockerfiles_mirror_repo_layout_for_file_deps():
         npm_ci_workdir, pkg_dests = _dockerfile_file_link_layout(docker_rel)
         assert npm_ci_workdir, f"{docker_rel}: no npm ci step found"
         assert pkg_dests, f"{docker_rel}: no packages COPY found (test vacuous)"
+        import posixpath
+
         scope = dep.split("/")[0]
-        target = os.path.normpath(os.path.join(
+        target = posixpath.normpath(posixpath.join(
             npm_ci_workdir, "node_modules", scope,
             "../../../../packages", pkg_dir))
         for dest in pkg_dests:
-            pkg_copy = dest if dest.endswith(f"/{pkg_dir}") else os.path.join(dest, pkg_dir)
+            pkg_copy = dest if dest.endswith(f"/{pkg_dir}") else dest + "/" + pkg_dir
             assert target == pkg_copy, (
                 f"{docker_rel}: file: link for {dep} resolves to {target}, "
                 f"but a packages COPY lands at {pkg_copy} — dangling link"
@@ -566,6 +575,10 @@ def test_alembic_upgrade_head_from_zero(tmp_path):
     assert len(tables) > 10  # migrationهای واقعی اعمال شدند
 
 
+@pytest.mark.skipif(
+    not (shutil.which("sqlite3") and shutil.which("gzip")),
+    reason="CLIهای sqlite3/gzip در این محیط نیست (فقط در لینوکس/CI)",
+)
 def test_backup_restore_drill_with_manifest(tmp_path):
     """§۱۷: تمرین واقعی — seed → بکاپ با مانیفست SHA-256 → restore → شمارش + هش.
 
