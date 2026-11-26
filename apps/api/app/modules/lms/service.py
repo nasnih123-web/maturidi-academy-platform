@@ -120,21 +120,26 @@ async def list_courses(
         lesson_counts = {cid: int(n) for cid, n in counts_rows}
 
     progress_map: dict[uuid.UUID, float] = {}
-    if user_id:
+    if user_id and any(lesson_counts.get(c.id, 0) for c in rows):
+        # D-6/A-7: پیشرفت کاربر (درس‌های completed) برای همهٔ دوره‌های
+        # صفحه در **یک** کوئری گروهی — قبلاً هر دوره یک count جدا داشت.
+        done_rows = (
+            await db.execute(
+                select(Lesson.course_id, func.count(UserProgress.id))
+                .join(UserProgress, UserProgress.lesson_id == Lesson.id)
+                .where(
+                    Lesson.course_id.in_([c.id for c in rows]),
+                    UserProgress.user_id == user_id,
+                    UserProgress.status == "completed",
+                )
+                .group_by(Lesson.course_id)
+            )
+        ).all()
+        done_counts = {cid: int(n) for cid, n in done_rows}
         for c in rows:
             total = lesson_counts.get(c.id, 0) or 0
             if total:
-                done = (
-                    await db.execute(
-                        select(func.count(UserProgress.id))
-                        .join(Lesson, Lesson.id == UserProgress.lesson_id)
-                        .where(
-                            Lesson.course_id == c.id,
-                            UserProgress.user_id == user_id,
-                            UserProgress.status == "completed",
-                        )
-                    )
-                ).scalar() or 0
+                done = done_counts.get(c.id, 0) or 0
                 progress_map[c.id] = round(done / total * 100, 1)
 
     out = []
