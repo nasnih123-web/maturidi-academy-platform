@@ -52,13 +52,17 @@ def _write_stub_tesseract(bin_dir: Path, langs: list[str]) -> None:
             encoding="ascii",
         )
     else:
-        (bin_dir / "tesseract").write_text(
+        # write_text در Python 3.13+ تعداد بایت نوشته‌شده را برمی‌گرداند
+        # (int)؛ زنجیرهٔ .chmod روی بازنمی‌گردد خطا می‌دهد (CI لینوکس).
+        t = bin_dir / "tesseract"
+        t.write_text(
             "#!/bin/sh\n"
             'if [ "$1" = "--list-langs" ]; then\n'
             + "".join(f"  echo {l}\n" for l in lines)
             + "fi\n"
             "exit 0\n"
-        ).chmod(0o755)
+        )
+        t.chmod(0o755)
 
 
 @pytest.fixture
