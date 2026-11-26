@@ -9,6 +9,7 @@ import { usePostView } from '@/lib/hooks/useSocial';
 import { CommentThread } from './CommentThread';
 import { PostCard } from './PostCard';
 import { ReportButton } from './ReportButton';
+import { LoginGate } from './LoginGate';
 import type { SocialLabels } from './labels';
 
 interface PostViewProps {
@@ -19,6 +20,10 @@ interface PostViewProps {
 
 export function PostView({ postId, locale, labels }: PostViewProps) {
   const view = usePostView(postId);
+
+  if (view.unauthenticated) {
+    return <LoginGate locale={locale} labels={labels} />;
+  }
 
   if (view.loading) {
     return (

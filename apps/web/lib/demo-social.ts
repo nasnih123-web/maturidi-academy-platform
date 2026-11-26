@@ -32,25 +32,54 @@ import type { CmsPage } from './types';
 /* Mutable demo store (session-scoped, browser only)                    */
 /* ------------------------------------------------------------------ */
 
+/** Demo is locale-agnostic: pick the first non-empty localized string for a single-language field. */
+function firstText(t: { fa?: string | null; ar?: string | null; en?: string | null }): string {
+  return t.fa || t.ar || t.en || '';
+}
+
 const GROUPS: SocialGroup[] = [
   {
     id: 'g-fiqh',
-    name: 'فقه حنفی',
-    description: 'گفتگو دربارهٔ مسائل فقهی مذهب حنفی و پاسخ‌گویی طلاب',
+    name: {
+      fa: 'فقه حنفی',
+      ar: 'الفقه الحنفي',
+      en: 'Hanafi Fiqh',
+    },
+    description: {
+      fa: 'گفتگو دربارهٔ مسائل فقهی مذهب حنفی و پاسخ‌گویی طلاب',
+      ar: 'نقاشي حول مسائل الفقه الحنفي والاجابة عن اسئلة الطلاب',
+      en: 'Discussion of Hanafi fiqh questions and student Q&A',
+    },
     member_count: 1284,
     joined: true,
   },
   {
     id: 'g-aqida',
-    name: 'عقاید ماتریدی',
-    description: 'مباحث کلامی و عقاید اهل سنت بر مبنای مکتب ماتریدی',
+    name: {
+      fa: 'عقاید ماتریدی',
+      ar: 'عقيدة الماتريدي',
+      en: 'Maturidi Theology',
+    },
+    description: {
+      fa: 'مباحث کلامی و عقاید اهل سنت بر مبنای مکتب ماتریدی',
+      ar: 'مباحث كلامية وعقائد اهل السنة على مذهب الماتريدي',
+      en: 'Creed and theology following the Maturidi school',
+    },
     member_count: 932,
     joined: false,
   },
   {
     id: 'g-quran',
-    name: 'تفسیر قرآن',
-    description: 'تفسیر آیات و مباحث علوم قرآنی',
+    name: {
+      fa: 'تفسیر قرآن',
+      ar: 'تفسير القرآن',
+      en: 'Quran Exegesis',
+    },
+    description: {
+      fa: 'تفسیر آیات و مباحث علوم قرآنی',
+      ar: 'تفسير الآيات ومباحث العلوم القرآنية',
+      en: 'Verse exegesis and Quranic sciences',
+    },
     member_count: 2107,
     joined: true,
   },
@@ -195,7 +224,7 @@ export async function demoCreatePost(input: CreatePostInput): Promise<SocialPost
     id: `p-${postSeq}`,
     author: AUTHOR_ME,
     group_id: input.group_id ?? null,
-    group_name: group?.name ?? null,
+    group_name: group ? firstText(group.name) : null,
     body: input.body,
     comments_count: 0,
     likes_count: 0,

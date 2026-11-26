@@ -41,7 +41,21 @@ import {
   type SocialGroup,
   type SocialPost,
 } from '../social';
-import { getAccessToken as tokenOf } from '../auth-client';
+import { getAccessToken as tokenOf, isLoggedIn } from '../auth-client';
+
+/**
+ * Whether the social surfaces may fetch: demo mode is always on (fixture
+ * data), real mode requires a stored access token. Read client-side on
+ * mount — login/logout remounts these islands via navigation, so a
+ * one-shot read is the correct granularity (same as tokenRoles()).
+ */
+export function useIsAuthed(): boolean {
+  const [authed, setAuthed] = useState(false);
+  useEffect(() => {
+    setAuthed(isSocialDemo() || isLoggedIn());
+  }, []);
+  return authed;
+}
 
 /** Pure: role names carried by the access-token payload (RBAC is backend-owned). */
 function tokenRoles(): string[] {
@@ -77,7 +91,7 @@ export interface LoadState {
   error: boolean;
 }
 
-function usePaginated<T>(loader: (cursor?: string) => Promise<CursorPage<T>>) {
+function usePaginated<T>(loader: (cursor?: string) => Promise<CursorPage<T>>, enabled = true) {
   const [items, setItems] = useState<T[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,7 +99,6 @@ function usePaginated<T>(loader: (cursor?: string) => Promise<CursorPage<T>>) {
   const [error, setError] = useState(false);
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(false);
@@ -115,8 +128,17 @@ function usePaginated<T>(loader: (cursor?: string) => Promise<CursorPage<T>>) {
   }, [cursor, loadingMore]);
 
   useEffect(() => {
+    // Gated surfaces (unauthenticated guests, or the SSR pass before auth
+    // state resolves) must not fetch: the social endpoints answer 401
+    // without a token, and the view renders a login gate instead of an
+    // error state. `enabled` flips false→true once useIsAuthed resolves,
+    // which re-runs this effect and starts the initial load.
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     void load();
-  }, [load]);
+  }, [load, enabled]);
 
   return { items, setItems, cursor, loading, loadingMore, error, retry: load, loadMore };
 }
@@ -126,7 +148,8 @@ function usePaginated<T>(loader: (cursor?: string) => Promise<CursorPage<T>>) {
 /* ------------------------------------------------------------------ */
 
 export function useSocialGroups() {
-  const page = usePaginated<SocialGroup>(useCallback((c) => listGroups(c), []));
+  const authed = useIsAuthed();
+  const page = usePaginated<SocialGroup>(useCallback((c) => listGroups(c), []), authed);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const toggleJoin = useCallback(
@@ -153,7 +176,7 @@ export function useSocialGroups() {
     [busyId, page],
   );
 
-  return { ...page, busyId, toggleJoin };
+  return { ...page, busyId, toggleJoin, unauthenticated: !authed };
 }
 
 export interface GroupViewState extends LoadState {
@@ -167,9 +190,11 @@ export interface GroupViewState extends LoadState {
   retryAll: () => void;
   busyId: string | null;
   toggleJoin: () => void;
+  unauthenticated: boolean;
 }
 
 export function useGroupView(groupId: string): GroupViewState {
+  const authed = useIsAuthed();
   const [group, setGroup] = useState<SocialGroup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -177,6 +202,7 @@ export function useGroupView(groupId: string): GroupViewState {
 
   const posts = usePaginated<SocialPost>(
     useCallback((c) => listGroupPosts(groupId, c), [groupId]),
+    authed,
   );
 
   const load = useCallback(async () => {
@@ -192,8 +218,12 @@ export function useGroupView(groupId: string): GroupViewState {
   }, [groupId]);
 
   useEffect(() => {
+    if (!authed) {
+      setLoading(false);
+      return;
+    }
     void load();
-  }, [load]);
+  }, [load, authed]);
 
   const toggleJoin = useCallback(async () => {
     if (!group || busy) return;
@@ -228,6 +258,7 @@ export function useGroupView(groupId: string): GroupViewState {
     retryAll,
     busyId: busy ? groupId : null,
     toggleJoin,
+    unauthenticated: !authed,
   };
 }
 
@@ -244,10 +275,12 @@ export interface FeedState extends LoadState {
   prependPost: (post: SocialPost) => void;
   toggleLike: (post: SocialPost) => void;
   toggleFollow: (post: SocialPost) => void;
+  unauthenticated: boolean;
 }
 
 export function useSocialFeed(): FeedState {
-  const page = usePaginated<SocialPost>(useCallback((c) => getFeed(c), []));
+  const authed = useIsAuthed();
+  const page = usePaginated<SocialPost>(useCallback((c) => getFeed(c), []), authed);
 
   const prependPost = useCallback(
     (post: SocialPost) => page.setItems((prev) => [post, ...prev]),
@@ -310,6 +343,7 @@ export function useSocialFeed(): FeedState {
     prependPost,
     toggleLike,
     toggleFollow,
+    unauthenticated: !authed,
   };
 }
 
@@ -388,9 +422,11 @@ export interface PostViewState extends LoadState {
   submitComment: () => Promise<void>;
   toggleLike: () => void;
   toggleFollow: () => void;
+  unauthenticated: boolean;
 }
 
 export function usePostView(postId: string): PostViewState {
+  const authed = useIsAuthed();
   const [detail, setDetail] = useState<PostDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -412,8 +448,12 @@ export function usePostView(postId: string): PostViewState {
   }, [postId]);
 
   useEffect(() => {
+    if (!authed) {
+      setLoading(false);
+      return;
+    }
     void load();
-  }, [load]);
+  }, [load, authed]);
 
   const submitComment = useCallback(async () => {
     const text = commentBody.trim();
@@ -493,6 +533,7 @@ export function usePostView(postId: string): PostViewState {
     submitComment,
     toggleLike,
     toggleFollow,
+    unauthenticated: !authed,
   };
 }
 

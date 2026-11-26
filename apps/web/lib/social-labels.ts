@@ -36,6 +36,8 @@ export function buildSocialLabels(t: T): SocialLabels {
     feedSubtitle: t('feedSubtitle'),
     emptyFeed: t('emptyFeed'),
     loginHint: t('loginHint'),
+    loginRequiredTitle: t('loginRequiredTitle'),
+    loginCta: t('loginCta'),
     composerPlaceholder: t('composerPlaceholder'),
     post: t('post'),
     posting: t('posting'),

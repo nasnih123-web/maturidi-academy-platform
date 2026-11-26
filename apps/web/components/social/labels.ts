@@ -27,6 +27,8 @@ export interface SocialLabels {
   feedSubtitle: string;
   emptyFeed: string;
   loginHint: string;
+  loginRequiredTitle: string;
+  loginCta: string;
   composerPlaceholder: string;
   post: string;
   posting: string;
