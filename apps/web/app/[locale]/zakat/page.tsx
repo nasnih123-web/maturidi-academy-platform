@@ -108,7 +108,7 @@ export default async function ZakatPage({
           zakatGramsLabel: t('zakatExtended.zakatGramsLabel'),
           dueLabel: t('zakatExtended.dueLabel'),
           dueKinds: t.raw('zakatExtended.dueKinds') as Record<string, string>,
-          ageYears: t('zakatExtended.ageYears'),
+          ageYears: t.raw('zakatExtended.ageYears') as string,
           fortiethsLabel: t('zakatExtended.fortiethsLabel'),
           extraMoneyLabel: t('zakatExtended.extraMoneyLabel'),
           horseRuleNote: t('zakatExtended.horseRuleNote'),
