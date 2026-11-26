@@ -85,6 +85,24 @@
 - README: «Next.js 15.5.28» درحالی‌که `apps/web/package.json` روی `next 16.4.6` است؛ URL کلون README به ریپوی مرجع قدیم (`maturidi-academy`) اشاره دارد نه ریپوی کار؛ تعداد تست‌ها در `LOCAL_DEVELOPMENT.md` (582) با README (630) فرق دارد.
 - `next dev` (Next 16) به‌صورت خودکار `apps/web/AGENTS.md` می‌سازد — فایل untracked در تری؛ یا `agentRules: false` در `next.config.mjs` یا gitignore.
 
+## وضعیت رفع (برنچ‌های اصلاحی)
+
+| باگ | برنچ اصلاح | وضعیت |
+|---|---|---|
+| W-01 (کرش LocalizedText گروه‌ها) | `feat/web-community-wire` | رفع شد + راستی‌آزمایی مرورگری (fa/ar) |
+| W-02 (حالت مهمان کامیونیتی) | `feat/web-community-wire` | رفع شد — دروازهٔ ورود به‌جای خطا |
+| W-03 (i18n زکات `{age}`) | `feat/web-i18n-calc-pages` | رفع شد — `t.raw`؛ fa/ar/en بدون خطا |
+| W-04 (i18n میراث `{version}`) | `feat/web-i18n-calc-pages` | رفع شد — `t.raw`؛ fa/ar/en بدون خطا |
+| W-05 (مانیفست 500) | `feat/web-pwa-manifest` | رفع شد — یک منبع، `GET /manifest.webmanifest` = 200 |
+| W-06 (polling 401 مهمان) | `feat/web-guest-sync` | رفع شد — ۷٫۵ دقیقه صفر درخواست |
+| W-07 (نگاشت is_member→joined) | `feat/web-community-wire` | رفع شد — دکمهٔ «ترک گروه» درست |
+| W-10 (نصف وب) | `feat/web-community-wire` | رفع شد — normalizer + fetch جداگانهٔ کامنت‌ها |
+| W-10 (نصف بک‌اند) | — (تسک ایجنت بک‌اند) | باز: غنی‌سازی `PostOut` با `author.display_name` + `group_name` |
+| W-08 (bootstrap cp1252) | — (مالکیت نامشخص) | باز — سؤال ۱ |
+| W-09 (انحراف مستندات) | — | باز — جزئی |
+
+توجه: push/PR این برنچ‌ها در انتظار توکن گیتهابِ دارای دسترسی نگارش است (توکن فعلی فقط‌خواند — 403 روی receive-pack و refs).
+
 ## نواقص نسبت به معیار (ویدیوها/فتاوی)
 
 ### GAP-1 — دروس
