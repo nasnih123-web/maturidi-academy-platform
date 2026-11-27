@@ -47,7 +47,9 @@ def _L(fa: str, ar: str, en: str) -> dict:
     return {"fa": fa, "ar": ar, "en": en}
 
 
-DEMO_SOURCE_TYPE = "seed_demo"
+# مارک اختصاصی: seed_library.py (فاز ۹) همان «seed_demo» را می‌زند —
+# جدا ماندن تا سیدها/حذف‌هایشان تداخل نگیرند.
+DEMO_SOURCE_TYPE = "seed_demo_content"
 _CAMPAIGN_FA = "کمپین نمایشی (دمو — قابل حذف)"
 _CAMPAIGN_TITLE = _L(
     _CAMPAIGN_FA,

@@ -46,21 +46,28 @@ def demo_storage(monkeypatch, tmp_path):
 
 
 async def _counts(db):
+    """فقط ردیف‌های مارک‌دار این سید — نه کل جدول‌ها (بسته‌به‌تست‌های
+    هم‌سشن که مقاله/کمپین خودش را می‌سازند)."""
+    import app.seed_demo_content as mod
     from app.models.models import Article, DonationCampaign, LibraryItem
 
     articles = (
-        await db.execute(select(func.count()).select_from(Article))
+        await db.execute(
+            select(func.count())
+            .select_from(Article)
+            .where(Article.slug.in_(mod._ARTICLE_SLUGS))
+        )
     ).scalar()
     library = (
         await db.execute(
             select(func.count())
             .select_from(LibraryItem)
-            .where(LibraryItem.source_type == "seed_demo")
+            .where(LibraryItem.source_type == mod.DEMO_SOURCE_TYPE)
         )
     ).scalar()
-    campaign = (
-        await db.execute(select(func.count()).select_from(DonationCampaign))
-    ).scalar()
+    # title JSONB است — فیلتر مارک در پایتون (الگوی seed_pms_demo).
+    camps = (await db.execute(select(DonationCampaign))).scalars().all()
+    campaign = sum(1 for c in camps if (c.title or {}).get("fa") == mod._CAMPAIGN_FA)
     return {"articles": articles, "library": library, "campaign": campaign}
 
 
