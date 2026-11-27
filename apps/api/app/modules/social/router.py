@@ -127,11 +127,22 @@ async def leave_group(
 # ---------------------------------------------------------------------------
 
 
-def _post_out(post, liked_ids: set | None = None) -> schemas.PostOut:
+def _post_out(
+    post,
+    liked_ids: set | None = None,
+    author_name: str | None = None,
+    group_name: str | None = None,
+) -> schemas.PostOut:
     return schemas.PostOut(
         id=post.id,
         group_id=post.group_id,
         author_id=post.author_id,
+        author=(
+            schemas.AuthorOut(id=post.author_id, display_name=author_name)
+            if author_name is not None
+            else None
+        ),
+        group_name=group_name,
         body=post.body,
         status=post.status,
         comment_count=post.comment_count or 0,
@@ -139,6 +150,32 @@ def _post_out(post, liked_ids: set | None = None) -> schemas.PostOut:
         liked=bool(liked_ids and post.id in liked_ids),
         created_at=post.created_at,
     )
+
+
+async def _post_items(
+    db: AsyncSession,
+    posts: list,
+    liked_ids: set | None,
+    user: User,
+) -> list[schemas.PostOut]:
+    """W-10: display_name نویسنده + نام گروه (locale کاربر درخواست‌دهنده)
+    در دو کوئری جمعی — نه N+1."""
+    author_names = await service.author_names(db, {p.author_id for p in posts})
+    group_names = await service.group_names(
+        db, {p.group_id for p in posts if p.group_id}
+    )
+    locale = user.locale or "fa"
+    return [
+        _post_out(
+            p,
+            liked_ids,
+            author_name=author_names.get(p.author_id),
+            group_name=service.pick_localized(
+                group_names.get(p.group_id) if p.group_id else None, locale
+            ),
+        )
+        for p in posts
+    ]
 
 
 @social_router.get("/feed", response_model=schemas.FeedPage)
@@ -154,7 +191,8 @@ async def feed(
     )
     liked_ids = await service.liked_post_ids(db, user.id, [p.id for p in posts])
     return schemas.FeedPage(
-        items=[_post_out(p, liked_ids) for p in posts], next_cursor=next_cursor
+        items=await _post_items(db, posts, liked_ids, user),
+        next_cursor=next_cursor,
     )
 
 
@@ -172,7 +210,8 @@ async def group_posts(
     )
     liked_ids = await service.liked_post_ids(db, user.id, [p.id for p in posts])
     return schemas.FeedPage(
-        items=[_post_out(p, liked_ids) for p in posts], next_cursor=next_cursor
+        items=await _post_items(db, posts, liked_ids, user),
+        next_cursor=next_cursor,
     )
 
 
@@ -185,7 +224,16 @@ async def create_post(
     post = await service.create_post(
         db, author=user, body=payload.body, group_id=payload.group_id
     )
-    return _post_out(post)
+    group_name = None
+    if post.group_id:
+        group = await service.get_group(db, post.group_id)
+        group_name = service.pick_localized(group.name, user.locale or "fa")
+    return _post_out(
+        post,
+        None,
+        author_name=user.full_name,
+        group_name=group_name,
+    )
 
 
 @social_router.get("/posts/{post_id}", response_model=schemas.PostOut)
@@ -196,7 +244,19 @@ async def get_post(
 ):
     post = await service.get_post(db, post_id)
     liked_ids = await service.liked_post_ids(db, user.id, [post.id])
-    return _post_out(post, liked_ids)
+    author_names = await service.author_names(db, {post.author_id})
+    group_name = None
+    if post.group_id:
+        group_names = await service.group_names(db, {post.group_id})
+        group_name = service.pick_localized(
+            group_names.get(post.group_id), user.locale or "fa"
+        )
+    return _post_out(
+        post,
+        liked_ids,
+        author_name=author_names.get(post.author_id),
+        group_name=group_name,
+    )
 
 
 @social_router.post("/posts/{post_id}/like", response_model=schemas.LikeOut)

@@ -50,10 +50,21 @@ class PostCreate(BaseModel):
     group_id: UUID | None = None
 
 
+class AuthorOut(BaseModel):
+    """نویسندهٔ پست/کامنت برای نمایش — W-10 (additive؛ author_id می‌ماند)."""
+
+    id: UUID
+    display_name: str
+
+
 class PostOut(BaseModel):
     id: UUID
     group_id: UUID | None
     author_id: UUID
+    # W-10 — additive: وب برای رندر کارت/صفحهٔ پست به display_name و
+    # group_name (رشتهٔ یک‌زبانه بر اساس locale کاربر) نیاز دارد.
+    author: AuthorOut | None = None
+    group_name: str | None = None
     body: str
     status: str
     comment_count: int

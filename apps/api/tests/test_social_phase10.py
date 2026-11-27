@@ -750,3 +750,117 @@ async def test_unfollow_idempotent(tc):
     )
     assert r.status_code == 200, r.text
     assert r.json() == {"unfollowed": False}
+
+
+# ---------------------------------------------------------------------------
+# W-10 — PostOut: author.display_name + group_name (additive)
+# ---------------------------------------------------------------------------
+
+
+async def test_post_out_enriched_with_author_and_group_name(tc):
+    admin = await _make_user(tc, ("social.moderate",))
+    user = await _make_user(tc)
+    client = tc["client"]
+
+    r = await client.post(
+        f"{BASE}/social/groups",
+        json={
+            "name": {"fa": "گروه وین", "ar": "مجموعة وين", "en": "Win Group"},
+            "slug": f"win-group-{_uid()}",
+        },
+        headers=admin,
+    )
+    assert r.status_code == 201, r.text
+    group_id = r.json()["id"]
+
+    # انتشار در گروه: author + group_name در پاسخ (locale کاربر: fa)
+    r = await client.post(
+        f"{BASE}/social/posts",
+        json={"body": "پست W-10", "group_id": group_id},
+        headers=user,
+    )
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["author_id"] == user["user_id"]  # قرارداد قدیمی دست‌نخورده
+    assert data["author"] == {
+        "id": user["user_id"],
+        "display_name": "کاربر تست اجتماعی",
+    }
+    assert data["group_name"] == "گروه وین"
+
+    # صفحهٔ پست (GET /posts/{id})
+    r = await client.get(f"{BASE}/social/posts/{data['id']}", headers=user)
+    assert r.status_code == 200, r.text
+    d2 = r.json()
+    assert d2["author"]["display_name"] == "کاربر تست اجتماعی"
+    assert d2["group_name"] == "گروه وین"
+
+    # فید گروه — آیتم‌ها غنی‌شده
+    r = await client.get(f"{BASE}/social/groups/{group_id}/posts", headers=user)
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    assert len(items) == 1
+    assert items[0]["author"]["id"] == user["user_id"]
+    assert items[0]["group_name"] == "گروه وین"
+
+    # پست بدون گروه: group_name خالی، author همچنان هست
+    r = await client.post(
+        f"{BASE}/social/posts", json={"body": "پست بدون گروه"}, headers=user
+    )
+    assert r.status_code == 201, r.text
+    solo_id = r.json()["id"]
+    assert r.json()["group_name"] is None
+    assert r.json()["author"]["display_name"] == "کاربر تست اجتماعی"
+
+    # فید عمومی: این دو پست با author و group_name درست
+    r = await client.get(f"{BASE}/social/feed?limit=100", headers=user)
+    assert r.status_code == 200, r.text
+    by_id = {i["id"]: i for i in r.json()["items"]}
+    assert by_id[data["id"]]["group_name"] == "گروه وین"
+    assert by_id[data["id"]]["author"]["id"] == user["user_id"]
+    assert by_id[solo_id]["group_name"] is None
+    assert by_id[solo_id]["author"]["id"] == user["user_id"]
+
+
+async def test_post_out_group_name_follows_requester_locale(tc):
+    """group_name تک‌زبانه، با locale کاربر درخواست‌دهنده (نه نویسنده)."""
+    admin = await _make_user(tc, ("social.moderate",))
+    author = await _make_user(tc)
+    client = tc["client"]
+
+    r = await client.post(
+        f"{BASE}/social/groups",
+        json={
+            "name": {"fa": "گروه زبانی", "ar": "مجموعة لغوية", "en": "Lang Group"},
+            "slug": f"lang-group-{_uid()}",
+        },
+        headers=admin,
+    )
+    group_id = r.json()["id"]
+    r = await client.post(
+        f"{BASE}/social/posts",
+        json={"body": "پست زبانی", "group_id": group_id},
+        headers=author,
+    )
+    assert r.status_code == 201, r.text
+    post_id = r.json()["id"]
+
+    viewer = await _make_user(tc)
+    async with tc["maker"]() as db:
+        from sqlalchemy import update
+
+        from app.models.models import User as UserModel
+
+        await db.execute(
+            update(UserModel)
+            .where(UserModel.id == uuid.UUID(viewer["user_id"]))
+            .values(locale="en")
+        )
+        await db.commit()
+
+    r = await client.get(f"{BASE}/social/posts/{post_id}", headers=viewer)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["group_name"] == "Lang Group"
+    # display_name نویسنده وابسته به locale بیننده نیست
+    assert data["author"]["display_name"] == "کاربر تست اجتماعی"
