@@ -89,6 +89,12 @@ class Settings(BaseSettings):
     clamav_timeout_seconds: float = 30.0
     clamav_allow_insecure_dev_bypass: bool = False
 
+    # محتوای نمایشی (مقاله/کتابخانه/کمپین) برای تست صفحات — فقط dev.
+    # پیش‌فرض خاموش؛ env توسعهٔ محلی (tools/dev/write_dev_env.py) روشنش
+    # می‌کند. حتی اگر در production true باشد، گارد app/seed_demo_content
+    # (app_env != production) اجرا نمی‌کند (دو لایهٔ دفاع).
+    demo_seed_enabled: bool = False
+
     # کپچا روی ثبت‌نام — Cloudflare Turnstile (C-02 — ADR-0029، قرارداد §۲).
     # captcha_enabled پیش‌فرض روشن است: اگر secret تنظیم نشده باشد،
     # ثبت‌نام fail-closed با 503 captcha_not_configured رد می‌شود؛
