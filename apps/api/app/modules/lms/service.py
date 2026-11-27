@@ -105,37 +105,46 @@ async def list_courses(
         next_cursor = _encode_cursor(last.sort_order, last.id)
         rows = rows[:limit]
 
+    # D-6/A-4: شمارش دروس همهٔ دوره‌ها در **یک** کوئری گروهی — قبلاً
+    # برای هر دوره یک count جدا بود (و در بلوک پیشرفت و حلقهٔ خروج
+    # تکرار می‌شد: ۲ count به ازای هر دوره).
+    lesson_counts: dict[uuid.UUID, int] = {}
+    if rows:
+        counts_rows = (
+            await db.execute(
+                select(Lesson.course_id, func.count(Lesson.id))
+                .where(Lesson.course_id.in_([c.id for c in rows]))
+                .group_by(Lesson.course_id)
+            )
+        ).all()
+        lesson_counts = {cid: int(n) for cid, n in counts_rows}
+
     progress_map: dict[uuid.UUID, float] = {}
-    if user_id:
-        lesson_counts = {
-            c.id: (
-                await db.execute(
-                    select(func.count(Lesson.id)).where(Lesson.course_id == c.id)
+    if user_id and any(lesson_counts.get(c.id, 0) for c in rows):
+        # D-6/A-7: پیشرفت کاربر (درس‌های completed) برای همهٔ دوره‌های
+        # صفحه در **یک** کوئری گروهی — قبلاً هر دوره یک count جدا داشت.
+        done_rows = (
+            await db.execute(
+                select(Lesson.course_id, func.count(UserProgress.id))
+                .join(UserProgress, UserProgress.lesson_id == Lesson.id)
+                .where(
+                    Lesson.course_id.in_([c.id for c in rows]),
+                    UserProgress.user_id == user_id,
+                    UserProgress.status == "completed",
                 )
-            ).scalar()
-            for c in rows
-        }
+                .group_by(Lesson.course_id)
+            )
+        ).all()
+        done_counts = {cid: int(n) for cid, n in done_rows}
         for c in rows:
             total = lesson_counts.get(c.id, 0) or 0
             if total:
-                done = (
-                    await db.execute(
-                        select(func.count(UserProgress.id))
-                        .join(Lesson, Lesson.id == UserProgress.lesson_id)
-                        .where(
-                            Lesson.course_id == c.id,
-                            UserProgress.user_id == user_id,
-                            UserProgress.status == "completed",
-                        )
-                    )
-                ).scalar() or 0
+                done = done_counts.get(c.id, 0) or 0
                 progress_map[c.id] = round(done / total * 100, 1)
 
     out = []
     for c in rows:
-        total = (
-            await db.execute(select(func.count(Lesson.id)).where(Lesson.course_id == c.id))
-        ).scalar() or 0
+        total = lesson_counts.get(c.id, 0) or 0
         out.append(
             {
                 "id": c.id,
@@ -365,17 +374,20 @@ async def prerequisites_satisfied(
             )
         )
     ).scalars().all()
-    missing: list[uuid.UUID] = []
-    for req in required:
-        has = (
-            await db.execute(
-                select(Certificate.id).where(
-                    Certificate.user_id == user_id, Certificate.course_id == req
-                )
+    # D-6/A-5: گواهی‌های کاربر برای همهٔ پیش‌نیازها در **یک** کوئری —
+    # قبلاً هر پیش‌نیاز یک کوئری جدا داشت.
+    if not required:
+        return True, []
+    owned = (
+        await db.execute(
+            select(Certificate.course_id).where(
+                Certificate.user_id == user_id,
+                Certificate.course_id.in_(list(required)),
             )
-        ).first()
-        if not has:
-            missing.append(req)
+        )
+    ).scalars().all()
+    owned_set = set(owned)
+    missing = [req for req in required if req not in owned_set]
     return (not missing), missing
 
 
@@ -658,32 +670,74 @@ async def recommendations(db: AsyncSession, user: User, limit: int = 10) -> list
     level_idx = LEVEL_ORDER.index(user_level) if user_level in LEVEL_ORDER else 0
     ordered_levels = LEVEL_ORDER[level_idx:] + LEVEL_ORDER[:level_idx]
 
+    # D-6/A-3: fetch گروهی — دوره‌های نامزدها (هر سه سطح) در یک کوئری،
+    # درس‌هایشان در یک کوئری، پیش‌نیازها در یک کوئری، و گواهی‌های کاربر
+    # در یک کوئری؛ بعد گشت سطوح مثل قبل در حافظه و با همان ترتیب
+    # (سطح، sort_order دوره، sort_order درس) اجرا می‌شود.
+    candidate_courses = (
+        await db.execute(
+            select(Course).where(
+                Course.is_active.is_(True),
+                Course.visibility == "public",
+                Course.level.in_(ordered_levels),
+            )
+        )
+    ).scalars().all()
+    courses_by_level: dict[str, list[Course]] = {}
+    for c in candidate_courses:
+        courses_by_level.setdefault(c.level, []).append(c)
+    for lst in courses_by_level.values():
+        lst.sort(key=lambda c: (c.sort_order, c.id))
+
+    lessons_by_course: dict[uuid.UUID, list[Lesson]] = {}
+    prerequisites_by_course: dict[uuid.UUID, list[uuid.UUID]] = {}
+    if candidate_courses:
+        all_course_ids = [c.id for c in candidate_courses]
+        lessons = (
+            await db.execute(
+                select(Lesson).where(Lesson.course_id.in_(all_course_ids))
+            )
+        ).scalars().all()
+        for l in lessons:
+            lessons_by_course.setdefault(l.course_id, []).append(l)
+        # نام حلقه جدا از lst (courses) — mypy متغیر حلقه را از اولین
+        # استفاده در محدوده تابع تایپ می‌کند.
+        for lesson_lst in lessons_by_course.values():
+            lesson_lst.sort(key=lambda l: (l.sort_order, l.id))
+        prereqs = (
+            await db.execute(
+                select(CoursePrerequisite).where(
+                    CoursePrerequisite.course_id.in_(all_course_ids)
+                )
+            )
+        ).scalars().all()
+        for p in prereqs:
+            prerequisites_by_course.setdefault(
+                p.course_id, []
+            ).append(p.requires_course_id)
+
+    all_required = {r for lst in prerequisites_by_course.values() for r in lst}
+    owned_certs: set[uuid.UUID] = set()
+    if all_required:
+        owned_certs = set(
+            (
+                await db.execute(
+                    select(Certificate.course_id).where(
+                        Certificate.user_id == user.id,
+                        Certificate.course_id.in_(list(all_required)),
+                    )
+                )
+            ).scalars().all()
+        )
+
     out: list[dict] = []
     seen_lessons: set[uuid.UUID] = set()
     for idx, level in enumerate(ordered_levels):
-        courses = (
-            await db.execute(
-                select(Course)
-                .where(
-                    Course.is_active.is_(True),
-                    Course.visibility == "public",
-                    Course.level == level,
-                )
-                .order_by(Course.sort_order, Course.id)
-            )
-        ).scalars().all()
-        for course in courses:
-            ok, _ = await prerequisites_satisfied(db, user.id, course.id)
-            if not ok:
+        for course in courses_by_level.get(level, []):
+            required = prerequisites_by_course.get(course.id, [])
+            if any(r not in owned_certs for r in required):
                 continue
-            lessons = (
-                await db.execute(
-                    select(Lesson)
-                    .where(Lesson.course_id == course.id)
-                    .order_by(Lesson.sort_order, Lesson.id)
-                )
-            ).scalars().all()
-            for lesson in lessons:
+            for lesson in lessons_by_course.get(course.id, []):
                 if lesson.id in completed or lesson.id in seen_lessons:
                     continue
                 seen_lessons.add(lesson.id)
@@ -732,27 +786,39 @@ async def list_cohorts(
         rows = rows[:limit]
         next_cursor = _encode_cursor(0, rows[-1].id)  # کرسر ساده بر اساس id
 
-    out = []
-    for c in rows:
-        enrolled = (
+    # D-6/A-6: شمار ثبت‌نام‌های فعال همهٔ کوهورت‌های صفحه در **یک**
+    # کوئری گروهی (+ یک کوئری برای کوهورت‌های خود کاربر) — قبلاً هر
+    # کوهورت ۲ کوئری جدا داشت (count + «این کوهورت من است؟»).
+    enrolled_counts: dict[uuid.UUID, int] = {}
+    mine_ids: set[uuid.UUID] = set()
+    if rows:
+        counts_rows = (
             await db.execute(
-                select(func.count(CohortEnrollment.id)).where(
-                    CohortEnrollment.cohort_id == c.id,
+                select(CohortEnrollment.cohort_id, func.count(CohortEnrollment.id))
+                .where(
+                    CohortEnrollment.cohort_id.in_([c.id for c in rows]),
                     CohortEnrollment.status == "active",
                 )
+                .group_by(CohortEnrollment.cohort_id)
             )
-        ).scalar() or 0
-        mine = False
+        ).all()
+        enrolled_counts = {cid: int(n) for cid, n in counts_rows}
         if user:
-            mine = (
+            mine_rows = (
                 await db.execute(
-                    select(CohortEnrollment.id).where(
-                        CohortEnrollment.cohort_id == c.id,
+                    select(CohortEnrollment.cohort_id).where(
+                        CohortEnrollment.cohort_id.in_([c.id for c in rows]),
                         CohortEnrollment.user_id == user.id,
                         CohortEnrollment.status == "active",
                     )
                 )
-            ).first() is not None
+            ).scalars().all()
+            mine_ids = set(mine_rows)
+
+    out = []
+    for c in rows:
+        enrolled = enrolled_counts.get(c.id, 0) or 0
+        mine = c.id in mine_ids
         out.append(
             {
                 "id": c.id,
@@ -1076,16 +1142,25 @@ async def admin_list_cohorts(db: AsyncSession) -> list[dict]:
             select(CourseCohort).order_by(CourseCohort.starts_at, CourseCohort.id)
         )
     ).scalars().all()
-    out = []
-    for c in rows:
-        enrolled = (
+    # D-6/A-6 (endpoint CRM): همان count گروهی — قبلاً هر کوهورت یک
+    # کوئری جدا داشت.
+    enrolled_counts: dict[uuid.UUID, int] = {}
+    if rows:
+        counts_rows = (
             await db.execute(
-                select(func.count(CohortEnrollment.id)).where(
-                    CohortEnrollment.cohort_id == c.id,
+                select(CohortEnrollment.cohort_id, func.count(CohortEnrollment.id))
+                .where(
+                    CohortEnrollment.cohort_id.in_([c.id for c in rows]),
                     CohortEnrollment.status == "active",
                 )
+                .group_by(CohortEnrollment.cohort_id)
             )
-        ).scalar() or 0
+        ).all()
+        enrolled_counts = {cid: int(n) for cid, n in counts_rows}
+
+    out = []
+    for c in rows:
+        enrolled = enrolled_counts.get(c.id, 0) or 0
         out.append(
             {
                 "id": c.id,

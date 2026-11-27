@@ -23,7 +23,7 @@ from itertools import pairwise
 from typing import Protocol, cast
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import APIError
@@ -1024,16 +1024,19 @@ async def _store_grade(
 ) -> list[HifzWordScore]:
     """Upsert نمره‌ها + درج ردیف‌های خطا (تاریخچه)."""
     stored: list[HifzWordScore] = []
-    for word in aligned:
-        existing = await db.execute(
-            select(HifzWordScore).where(
-                HifzWordScore.attempt_id == attempt.id,
-                HifzWordScore.surah == surah,
-                HifzWordScore.ayah == ayah,
-                HifzWordScore.word_index == word.word_index,
-            )
+    # D-6/A-1: نمره‌های موجودِ این آیه در **یک** کوئری fetch می‌شوند و
+    # بر حسب word_index map می‌کنند — قبلاً هر کلمه یک کوئری داشت
+    # (یک آزمون حافظه ≈ ۳۰۰ تا ۱۰۰۰ کوئری).
+    existing = await db.execute(
+        select(HifzWordScore).where(
+            HifzWordScore.attempt_id == attempt.id,
+            HifzWordScore.surah == surah,
+            HifzWordScore.ayah == ayah,
         )
-        row = existing.scalars().first()
+    )
+    by_index = {r.word_index: r for r in existing.scalars().all()}
+    for word in aligned:
+        row = by_index.get(word.word_index)
         if row is None:
             row = HifzWordScore(
                 attempt_id=attempt.id,
@@ -1485,20 +1488,27 @@ async def review_queue(db: AsyncSession, user: User) -> list[dict]:
         entry["last_activity_at"] = max(entry["last_activity_at"], m.created_at)
     # Latest scores per ayah: the most recently updated attempt that has
     # scores for the ayah decides whether it is still due.
+    # D-6/A-2: **یک** کوئری گروهی (row-value IN) برای همهٔ جفت‌ها به‌جای
+    # یک کوئری به ازای هر (surah, ayah). ترتیب جهانی همان
+    # updated_at DESC NULLS LAST است، پس گرفتن ۵۰ ردیف اول هر جفت دقیقاً
+    # همان LIMIT 50 کوئری‌به‌کوئریِ قبلی را بازتولید می‌کند.
     due: list[dict] = []
-    for (surah, ayah), entry in keys.items():
-        latest = await db.execute(
+    scores_by_pair: dict[tuple[int, int], list[HifzWordScore]] = {}
+    if keys:
+        pairs = list(keys)
+        latest_all = await db.execute(
             select(HifzWordScore)
             .join(HifzAttempt, HifzWordScore.attempt_id == HifzAttempt.id)
             .where(
                 HifzAttempt.user_id == user.id,
-                HifzWordScore.surah == surah,
-                HifzWordScore.ayah == ayah,
+                tuple_(HifzWordScore.surah, HifzWordScore.ayah).in_(pairs),
             )
             .order_by(HifzWordScore.updated_at.desc().nullslast())
-            .limit(50)
         )
-        rows = list(latest.scalars().all())
+        for r in latest_all.scalars().all():
+            scores_by_pair.setdefault((r.surah, r.ayah), []).append(r)
+    for (surah, ayah), entry in keys.items():
+        rows = scores_by_pair.get((surah, ayah), [])[:50]
         if not rows:
             due.append(entry)  # peek-only: never graded clean
             continue

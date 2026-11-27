@@ -254,11 +254,17 @@ async def _apply_pending(db, pending: dict) -> int:
 
     if not pending:
         return 0
+    # D-6/A-9: همهٔ کلیدهای pending در **یک** کوئری IN — قبلاً هر کلید
+    # یک SELECT جدا داشت (تعداد کلیدهای فعال در هر flush).
+    rows = (
+        await db.execute(
+            select(ApiKey).where(ApiKey.key_hash.in_(list(pending.keys())))
+        )
+    ).scalars().all()
+    by_hash = {r.key_hash: r for r in rows}
     updated = 0
     for key_hash, (period, delta, last_ts) in pending.items():
-        row = (
-            await db.execute(select(ApiKey).where(ApiKey.key_hash == key_hash))
-        ).scalar_one_or_none()
+        row = by_hash.get(key_hash)
         if row is None:
             continue
         if period and row.quota_period != period:
