@@ -90,6 +90,28 @@ def render_env() -> str:
     )
 
 
+def _force_utf8_stdio() -> None:
+    """W-08: خروجی مستقل از ترمینال.
+
+    روی کنسول ویندوز با code page غیر-UTF-8 (cp1252 — پیش‌فرض رایج
+    ویندوز فارسی) چاپ متن فارسی با UnicodeEncodeError «charmap» می‌افتد
+    و bootstrap وسط کار می‌شکست. اگر encoding فعلی stdout/stderr
+    UTF-8 نیست، به UTF-8 بازنویسی می‌کنیم (errors=replace: هرگز کرش
+    نمی‌کند). bootstrap.ps1 علاوه بر این کنسول را هم UTF-8 می‌کند.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            enc = (getattr(stream, "encoding", None) or "").lower()
+            if "utf" in enc:
+                continue
+            # getattr: typing.py TextIO (بدون reconfigure) را هم می‌پوشد
+            reconfigure = getattr(stream, "reconfigure", None)
+            if reconfigure is not None:
+                reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
 def write_if_missing(path: Path, content: str) -> bool:
     if path.exists():
         print(f"  {path} از قبل هست — دست نخورد ✓")
@@ -101,6 +123,7 @@ def write_if_missing(path: Path, content: str) -> bool:
 
 
 def main() -> int:
+    _force_utf8_stdio()
     content = render_env()
     created_root = write_if_missing(ROOT / ".env", content)
     created_api = write_if_missing(ROOT / "apps" / "api" / ".env", content)

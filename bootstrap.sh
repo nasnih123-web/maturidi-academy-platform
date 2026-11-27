@@ -20,6 +20,11 @@ say()  { printf '\n\033[1;32m>>> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m!!! %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[1;31mخطا: %s\033[0m\n' "$*"; exit 1; }
 
+# W-08: خروجی Python مستقل از ترمینال (هم‌ردیف با bootstrap.ps1) —
+# در محیطی با locale غیر-UTF-8 (مثلاً LC_ALL=C) چاپ متن فارسی
+# UnicodeEncodeError می‌داد. خود اسکریپت‌های Python هم گارد داخلی دارند.
+export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
+
 # ---------- ۱) پیش‌نیازها ----------
 say "بررسی پیش‌نیازها…"
 

@@ -139,7 +139,24 @@ def run_checks(base: str) -> int:
     return 1
 
 
+def _force_utf8_stdio() -> None:
+    """W-08: خروجی مستقل از ترمینال — روی کنسول cp1252 ویندوز فارسی
+    چاپ ✓/✗ و متن فارسی با UnicodeEncodeError «charmap» نمی‌افتد."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            enc = (getattr(stream, "encoding", None) or "").lower()
+            if "utf" in enc:
+                continue
+            # getattr: typing.py TextIO (بدون reconfigure) را هم می‌پوشد
+            reconfigure = getattr(stream, "reconfigure", None)
+            if reconfigure is not None:
+                reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
 def main() -> int:
+    _force_utf8_stdio()
     parser = argparse.ArgumentParser(description="Bootstrap health checklist")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     args = parser.parse_args()

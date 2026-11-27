@@ -22,6 +22,23 @@ try {
     return ([int]$p[0] -gt $minMajor) -or (([int]$p[0] -eq $minMajor) -and ([int]$p[1] -ge $minMinor))
   }
 
+  # ---------- ۰) کنسول UTF-8 (W-08) ----------
+  # روی ویندوز فارسی code page پیش‌فرض کنسول cp1252 است؛ چاپ متن فارسی
+  # (هم Write-Host این اسکریپت، هم فرآیندهای Python مثل write_dev_env.py
+  # و app.seed) با UnicodeEncodeError «charmap» می‌افتاد و bootstrap وسط
+  # کار می‌شکست: .env نیمه‌ساخته می‌ماند و seed مدیر commit نمی‌شود.
+  # chcp 65001 فقط این نشست کنسول را می‌زند؛ PYTHONIOENCODING فرآیندهای
+  # Python را می‌پوشاند. خود اسکریپت‌های Python هم gارد داخلی دارند
+  # (اگر مستقیم اجرا شوند، مستقل از ترمینال کار می‌کنند).
+  try {
+    chcp 65001 | Out-Null
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $env:PYTHONIOENCODING = "utf-8"
+  } catch {
+    Warn "تنظیم کنسول به UTF-8 نشد — روی کنسول غیر-UTF-8 خروجی ممکن است خراب شود."
+  }
+
   # ---------- ۱) پیش‌نیازها ----------
   Say "بررسی پیش‌نیازها…"
 
