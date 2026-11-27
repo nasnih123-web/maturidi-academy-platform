@@ -384,7 +384,10 @@ def _force_utf8_stdio() -> None:
             enc = (getattr(stream, "encoding", None) or "").lower()
             if "utf" in enc:
                 continue
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            # getattr: typing.py TextIO (بدون reconfigure) را هم می‌پوشد
+            reconfigure = getattr(stream, "reconfigure", None)
+            if reconfigure is not None:
+                reconfigure(encoding="utf-8", errors="replace")
         except (OSError, ValueError):
             pass
 
