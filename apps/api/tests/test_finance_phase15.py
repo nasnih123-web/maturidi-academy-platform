@@ -780,3 +780,79 @@ async def test_callback_ok_after_cancel_409(tc, db_session, zfake):
         )
     ).scalar()
     assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# F-1 — rate-limit روی /donate و /donate/manual (backend-audit)
+# ---------------------------------------------------------------------------
+# هر /donate یک تراکنش واقعی درگاه می‌سازد؛ Idempotency-Key تازه مهاجم را
+# نگه نمی‌دارد. سقف: ۵ درخواست در ۵ دقیقه به ازای هر IP کلاینت.
+# (لیمیت‌ر بین تست‌ها با fixture autouse ریست می‌شود؛ در env تست،
+# Redis دسترس‌ناپذیر است و fallback حافظه‌ای — بدون اثر بر رفتار.)
+
+
+@pytest.mark.asyncio
+async def test_donate_rate_limited_per_ip(tc, db_session, zfake):
+    client = tc["client"]
+    await _stage_pay_settings(db_session)
+    for i in range(5):
+        r = await client.post(
+            f"{BASE}/finance/donate",
+            headers={"Idempotency-Key": f"rl-{uuid.uuid4()}"},
+            json={
+                "amount": 100_000,
+                "donor_name": "تست",
+                "callback_url": "http://test/finance/callback",
+            },
+        )
+        assert r.status_code == 201, r.text
+    r = await client.post(
+        f"{BASE}/finance/donate",
+        headers={"Idempotency-Key": f"rl-{uuid.uuid4()}"},
+        json={
+            "amount": 100_000,
+            "donor_name": "تست",
+            "callback_url": "http://test/finance/callback",
+        },
+    )
+    assert r.status_code == 429
+    assert r.json()["error"]["code"] == "rate_limited"
+    # درگاه فقط برای ۵ درخواست مجاز فراخوانی شده، نه ۶
+    assert zfake.box["calls"]["request"] == 5
+
+
+@pytest.mark.asyncio
+async def test_donate_manual_rate_limited_per_ip(tc, db_session):
+    """namespace جدا: سقف /donate/manual مستقل از /donate است."""
+    from app.core.platform_settings import reset_settings_cache, stage_setting
+
+    await stage_setting(db_session, "donation.card_enabled", "true")
+    await stage_setting(
+        db_session, "donation.card_number", "6037-9911-1234-5678"
+    )
+    await db_session.commit()
+    reset_settings_cache()
+
+    client = tc["client"]
+    for i in range(5):
+        r = await client.post(
+            f"{BASE}/finance/donate/manual",
+            data={
+                "method": "card",
+                "amount": "2500000",
+                "donor_name": "تست",
+                "proof_text": f"TRACK-RL-{i}",
+            },
+        )
+        assert r.status_code == 201, r.text
+    r = await client.post(
+        f"{BASE}/finance/donate/manual",
+        data={
+            "method": "card",
+            "amount": "2500000",
+            "donor_name": "تست",
+            "proof_text": "TRACK-RL-X",
+        },
+    )
+    assert r.status_code == 429
+    assert r.json()["error"]["code"] == "rate_limited"

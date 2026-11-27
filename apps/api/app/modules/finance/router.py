@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.errors import APIError
+from app.core.rate_limit import get_client_ip, rate_limit, trusted_proxy_set
 from app.core.storage import read_capped_upload
 from app.models.models import User
 from app.modules.auth.dependencies import get_current_user, require_permission
@@ -56,12 +57,32 @@ def _ua(request: Request) -> str | None:
     return request.headers.get("user-agent")
 
 
+def _donate_rl_key(request: Request) -> str:
+    """F-1: کلید rate-limit اهدا — IP کلاینت با محافظت XFF
+    (trusted_proxies). هر /donate یک تراکنش واقعی درگاه می‌سازد و
+    Idempotency-Key تازه مهاجم را نگه نمی‌دارد؛ سقف IP/کاربرمحور
+    نگه‌دارنده است (docs/audit/backend-audit.md)."""
+    from app.core.config import get_settings
+
+    proxies = trusted_proxy_set(get_settings().trusted_proxies)
+    return f"donate:{get_client_ip(request, proxies) or 'unknown'}"
+
+
+def _donate_manual_rl_key(request: Request) -> str:
+    """F-1: سقف جدا برای اهدای دستی (namespace جدا از /donate)."""
+    from app.core.config import get_settings
+
+    proxies = trusted_proxy_set(get_settings().trusted_proxies)
+    return f"donate_manual:{get_client_ip(request, proxies) or 'unknown'}"
+
+
 # ---------------------------------------------------------------------------
 # عمومی
 # ---------------------------------------------------------------------------
 
 
 @finance_router.post("/donate", response_model=schemas.DonateOut)
+@rate_limit(_donate_rl_key, limit=5, window_s=300)
 async def donate(
     request: Request,
     response: Response,
@@ -152,6 +173,7 @@ async def donation_methods(db: AsyncSession = Depends(get_db)):
 @finance_router.post(
     "/donate/manual", response_model=schemas.ManualDonationOut, status_code=201
 )
+@rate_limit(_donate_manual_rl_key, limit=5, window_s=300)
 async def donate_manual(
     request: Request,
     method: str = Form(...),
