@@ -700,8 +700,10 @@ async def recommendations(db: AsyncSession, user: User, limit: int = 10) -> list
         ).scalars().all()
         for l in lessons:
             lessons_by_course.setdefault(l.course_id, []).append(l)
-        for lst in lessons_by_course.values():
-            lst.sort(key=lambda l: (l.sort_order, l.id))
+        # نام حلقه جدا از lst (courses) — mypy متغیر حلقه را از اولین
+        # استفاده در محدوده تابع تایپ می‌کند.
+        for lesson_lst in lessons_by_course.values():
+            lesson_lst.sort(key=lambda l: (l.sort_order, l.id))
         prereqs = (
             await db.execute(
                 select(CoursePrerequisite).where(
