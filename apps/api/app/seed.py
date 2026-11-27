@@ -736,5 +736,20 @@ async def main() -> None:
     print("seed انجام شد.")
 
 
+def _force_utf8_stdio() -> None:
+    """W-08: seed مستقل از ترمینال — روی کنسول cp1252 ویندوز فارسی
+    چاپ پیام‌های فارسی با UnicodeEncodeError «charmap» نمی‌افتد (بدون
+    این گارد، bootstrap وسط seed می‌شکست و مدیر commit نمی‌شد)."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            enc = (getattr(stream, "encoding", None) or "").lower()
+            if "utf" in enc:
+                continue
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
 if __name__ == "__main__":
+    _force_utf8_stdio()
     asyncio.run(main())
