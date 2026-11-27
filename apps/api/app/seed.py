@@ -732,6 +732,15 @@ async def main() -> None:
         pms_seed = await seed_pms_demo(db, admin)
         print(f"seed پروژه (PMS): {pms_seed}")
 
+        # محتوای نمایشی (مقاله/کتابخانه/کمپین) — فقط با flag صریح و
+        # هرگز در production (گارد دو لایه در app/seed_demo_content).
+        from app.core.config import get_settings
+        from app.seed_demo_content import demo_seed_allowed, seed_demo_content
+
+        if demo_seed_allowed(get_settings()):
+            demo_seed = await seed_demo_content(db)
+            print(f"seed محتوای نمایشی: {demo_seed}")
+
         await db.commit()
     print("seed انجام شد.")
 

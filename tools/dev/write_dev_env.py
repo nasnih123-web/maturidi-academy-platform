@@ -71,6 +71,13 @@ STORAGE_LOCAL_DIR=./storage
 # --- CORS وب و CRM محلی ---
 CORS_ALLOW_ORIGINS=http://localhost:3000,http://localhost:5173
 
+# --- محتوای نمایشی (فقط dev) ---
+# در اولین seed، چند مقاله/آیتم کتابخانه و یک کمپین نمایشی می‌سازد
+# تا صفحات وب با دادهٔ واقعی تست شوند. همهٔ ردیف‌ها مارک «دمو — قابل
+# حذف» دارند و با `python -m app.seed_demo_content --delete` پاک می‌شوند.
+# در production حتی true بودن این flag هم نادیده گرفته می‌شود.
+DEMO_SEED_ENABLED=true
+
 # --- secretهای همین نصب (تصادفی ساخته شده‌اند؛ به‌اشتراک نگذارید) ---
 JWT_SECRET={jwt_value}
 STORAGE_SIGNING_SECRET={storage_value}
