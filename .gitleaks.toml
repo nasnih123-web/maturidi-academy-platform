@@ -1,0 +1,36 @@
+# D-7 (مکمل S-09): تنظیمات گیت‌لیکس برای اسکن تاریخچهٔ کامل گیت در CI.
+#
+# سیاست: مجموعهٔ قواعد پیش‌فرض بدون هیچ تغییری (نه rule اضافه، نه
+# rule غیرفعال) + allowlistِ فقط مقادیر شناخته‌شدهٔ غیرتولیدی که هرکدام
+# با دلیل مستند است. هیچ exclusion در سطح فایل/پوشه نیست: یک exclude
+# مسیر، راز واقعیِ آتی در همان فایل را هم بی‌سروصدا رد می‌کرد.
+# هر entry جدید در allowlist باید با دلیل (چه چیزی است، کجاست) ثبت شود.
+title = "Maturidi Academy — gitleaks (D-7)"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+مقادیر شناخته‌شدهٔ غیرتولیدی (D-7 — اسکن تاریخچهٔ کامل).
+هر regex دقیقاً یک مقدار خاص را می‌پوشاند، نه یک الگو عمومی.
+"""
+regexes = [
+  # compose-smoke job (.github/workflows/ci.yml): ENCRYPTION_KEYِ
+  # .env.prodِ CI — مقدار یک‌بارمصرف و صریحاً «فقط CI، نه راز واقعی».
+  # اگر روزی چرخش کرد، این خط هم باید به‌روز شود.
+  '''U3gqnk6dzSGJxfCvPp4Ix0FnNdEoFcoTunvFm8ImjvQ=''',
+  # fixture تست (نسخهٔ فعلی): STORAGE_SIGNING_SECRET در
+  # test_remediation2_track1_storage.py — برای ورزش assert production.
+  '''Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LzXv7Bn''',
+  # fixture تست (تاریخچه): GOOD_S3_SECRET قدیمی همان فایل که جایگزین
+  # unit-test-only-fake-secret-00000 شده — در تاریخچه می‌ماند.
+  '''m9N3vB7xZ1qW5eR8tY2uI4oP6aS0dF3g''',
+  # توکن reset جعلی در تست قالب ایمیل (test_remediation2_track1_recovery) —
+  # عمداً نامعتبر است.
+  '''abcDEF123_xyz''',
+  # کلید API عمداً نامعتبر — تست 401 (test_security_phase17).
+  '''mk_invalid_key_123''',
+  # کلید localStorage وب (finance-client.ts) — راز نیست.
+  '''ma\.pendingDonations\.v1''',
+]
