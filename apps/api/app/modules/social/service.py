@@ -244,6 +244,55 @@ async def get_post(db: AsyncSession, post_id: uuid.UUID) -> SocialPost:
     return post
 
 
+# ---------------------------------------------------------------------------
+# W-10 — غنی‌سازی پست: display_name نویسنده + نام گروه (یک‌زبانه)
+# ---------------------------------------------------------------------------
+
+
+def pick_localized(name: dict | None, locale: str) -> str | None:
+    """LocalizedText (همیشه سه‌زبانه، §۱۵.۴) → رشتهٔ تک‌زبانه برای locale
+    کاربر؛ گارد برای دادهٔ ناقص: fa، سپس اولین مقدار غیرخالی."""
+    if not name:
+        return None
+    value = name.get(locale) or name.get("fa")
+    if value:
+        return value
+    for v in name.values():
+        if v:
+            return v
+    return None
+
+
+async def author_names(
+    db: AsyncSession, author_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, str]:
+    """display_name نویسندگان در یک کوئری — W-10، بدون N+1."""
+    if not author_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(User.id, User.full_name).where(User.id.in_(author_ids))
+        )
+    ).all()
+    return {uid: name for uid, name in rows}
+
+
+async def group_names(
+    db: AsyncSession, group_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, dict]:
+    """نام‌های (LocalizedText) گروه‌ها در یک کوئری — W-10، بدون N+1."""
+    if not group_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(SocialGroup.id, SocialGroup.name).where(
+                SocialGroup.id.in_(group_ids)
+            )
+        )
+    ).all()
+    return {gid: name for gid, name in rows}
+
+
 async def liked_post_ids(
     db: AsyncSession, user_id: uuid.UUID, post_ids: list[uuid.UUID]
 ) -> set[uuid.UUID]:
